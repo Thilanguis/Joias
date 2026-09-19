@@ -9,13 +9,14 @@
   <link rel="icon" type="image/png" sizes="192x192" href="icon-192.png" />
   <link rel="apple-touch-icon" sizes="192x192" href="icon-192.png" />
   <link rel="stylesheet" href="styles.css" />
+  <link rel="stylesheet" href="jewel-theme.css" />
 </head>
 <body>
   <main class="app-shell">
     <section id="menuScreen" class="screen active" aria-labelledby="gameTitle">
       <div class="menu-shell">
         <div class="hero menu-hero">
-          <div class="gem-logo" aria-hidden="true">💎</div>
+          <div class="gem-logo" aria-hidden="true"><span class="jewel-emblem"></span></div>
           <div>
             <span class="eyebrow">FINDOM ARCADE</span>
             <h1 id="gameTitle">JOIAS FINDOM</h1>
@@ -81,7 +82,7 @@
               </button>
               <button type="button" class="mode-option" data-format="turns" aria-pressed="false">
                 <span class="mode-icon" aria-hidden="true">🎯</span>
-                <span class="mode-copy"><strong>Turnos</strong><small>Cada lado joga seus movimentos</small></span>
+                <span class="mode-copy"><strong>Turnos</strong><small>Cada lado tem seus movimentos e 90s por vez</small></span>
                 <span class="mode-check" aria-hidden="true">✓</span>
               </button>
             </div>
@@ -151,38 +152,88 @@
     </section>
 
     <section id="gameScreen" class="screen" aria-label="Partida de Joias">
+      <div class="arena-masthead" aria-label="Joias Findom">
+        <span class="masthead-line" aria-hidden="true"></span>
+        <span class="jewel-emblem" aria-hidden="true"></span>
+        <span>JOIAS <b>FINDOM</b></span>
+        <span class="masthead-line" aria-hidden="true"></span>
+      </div>
       <header class="hud">
-        <div class="hud-side player-hud">
+        <div id="playerHud" class="hud-side player-hud">
           <small id="playerNameHud">VOCÊ</small>
-          <strong id="playerScore" class="score-number">0</strong>
-          <span id="playerScoreFloat" class="score-float" aria-hidden="true"></span>
-          <span id="playerScoreTag" class="score-tag" hidden>👑 x2</span>
-          <span id="playerClock" class="side-clock">60,0s</span>
+          <div class="hud-metric score-metric">
+            <span class="metric-label">PONTOS</span>
+            <strong id="playerScore" class="score-number">0</strong>
+            <span id="playerScoreReward" class="hud-reward" role="status" aria-atomic="true"></span>
+          </div>
+          <div class="hud-clock-row">
+            <div class="hud-metric clock-metric">
+              <span id="playerClockLabel" class="metric-label">TEMPO</span>
+              <span id="playerClock" class="side-clock">60,0s</span>
+              <span id="playerClockReward" class="hud-reward" role="status" aria-atomic="true"></span>
+            </div>
+            <div id="playerMovesMetric" class="hud-metric moves-metric" hidden>
+              <span class="metric-label">MOVIMENTOS</span>
+              <b id="playerMoves">3 MOV.</b>
+              <span id="playerMovesReward" class="hud-reward" role="status" aria-atomic="true"></span>
+            </div>
+          </div>
           <div id="playerTimeBar" class="time-track"><i id="playerTimeFill"></i></div>
-          <div id="playerCrownBoost" class="crown-boost" hidden>
-            <div class="crown-boost-line"><span>👑 MULTIPLICADOR</span><b id="playerCrownBoostTime">0,0s</b></div>
-            <div class="crown-boost-track"><i id="playerCrownBoostFill"></i></div>
+          <span id="playerFreeze" class="freeze-status" aria-live="off"></span>
+          <div class="hud-metric money-metric">
+            <span class="metric-label">DINHEIRO</span>
+            <b id="playerMoney" class="side-money">R$ 0,00</b>
+            <span id="playerMoneyReward" class="hud-reward" role="status" aria-atomic="true"></span>
+          </div>
+          <div class="effects-metric">
+            <div id="playerCrownBoost" class="crown-boost" hidden>
+              <div class="crown-boost-line"><span aria-label="Multiplicador">👑</span><b id="playerCrownBoostTime">x2 · 8,0s</b></div>
+              <div class="crown-boost-track"><i id="playerCrownBoostFill"></i></div>
+            </div>
+            <span id="playerCrownBoostTimeReward" class="hud-reward" role="status" aria-atomic="true"></span>
           </div>
         </div>
         <div class="match-center">
           <small id="centerLabel">CORRIDA</small>
           <strong id="centerValue">AO VIVO</strong>
           <span id="centerSub">cada um tem seu tempo</span>
-          <div id="moneyLead" class="money-lead" aria-live="polite">
-            <small>EMPATE</small><strong>R$ 0,00</strong>
+          <div id="moneyLead" class="money-lead">
+            <small id="moneyLeadLabel">EMPATE</small><strong id="moneyLeadValue">R$ 0,00</strong>
           </div>
           <span id="moneyRate" class="money-rate">100 pts = R$ 1,00</span>
         </div>
         <div id="rivalHud" class="hud-side rival-hud">
           <small id="rivalNameHud">JADE</small>
-          <strong id="rivalScore" class="score-number">0</strong>
-          <span id="rivalScoreFloat" class="score-float" aria-hidden="true"></span>
-          <span id="rivalScoreTag" class="score-tag" hidden>👑 x2</span>
-          <span id="rivalClock" class="side-clock">60,0s</span>
+          <div class="hud-metric score-metric">
+            <span class="metric-label">PONTOS</span>
+            <strong id="rivalScore" class="score-number">0</strong>
+            <span id="rivalScoreReward" class="hud-reward" role="status" aria-atomic="true"></span>
+          </div>
+          <div class="hud-clock-row">
+            <div class="hud-metric clock-metric">
+              <span id="rivalClockLabel" class="metric-label">TEMPO</span>
+              <span id="rivalClock" class="side-clock">60,0s</span>
+              <span id="rivalClockReward" class="hud-reward" role="status" aria-atomic="true"></span>
+            </div>
+            <div id="rivalMovesMetric" class="hud-metric moves-metric" hidden>
+              <span class="metric-label">MOVIMENTOS</span>
+              <b id="rivalMoves">3 MOV.</b>
+              <span id="rivalMovesReward" class="hud-reward" role="status" aria-atomic="true"></span>
+            </div>
+          </div>
           <div id="rivalTimeBar" class="time-track"><i id="rivalTimeFill"></i></div>
-          <div id="rivalCrownBoost" class="crown-boost rival-crown-boost" hidden>
-            <div class="crown-boost-line"><span>👑 MULTIPLICADOR</span><b id="rivalCrownBoostTime">0,0s</b></div>
-            <div class="crown-boost-track"><i id="rivalCrownBoostFill"></i></div>
+          <span id="rivalFreeze" class="freeze-status" aria-live="off"></span>
+          <div class="hud-metric money-metric">
+            <span class="metric-label">DINHEIRO</span>
+            <b id="rivalMoney" class="side-money">R$ 0,00</b>
+            <span id="rivalMoneyReward" class="hud-reward" role="status" aria-atomic="true"></span>
+          </div>
+          <div class="effects-metric">
+            <div id="rivalCrownBoost" class="crown-boost" hidden>
+              <div class="crown-boost-line"><span aria-label="Multiplicador">👑</span><b id="rivalCrownBoostTime">x2 · 8,0s</b></div>
+              <div class="crown-boost-track"><i id="rivalCrownBoostFill"></i></div>
+            </div>
+            <span id="rivalCrownBoostTimeReward" class="hud-reward" role="status" aria-atomic="true"></span>
           </div>
         </div>
       </header>
@@ -201,9 +252,6 @@
             </div>
             <span id="playerMoveState" class="move-state">Jogando</span>
           </div>
-          <div id="playerLastEvent" class="last-event" aria-live="polite">Faça uma combinação para pontuar.</div>
-          <div id="playerTimeBonus" class="time-bonus" aria-live="polite"></div>
-          <div id="playerFeedback" class="play-feedback" aria-live="polite"></div>
           <div id="board" class="board" role="grid" aria-label="Seu tabuleiro de joias"></div>
         </section>
 
@@ -217,27 +265,26 @@
             </div>
             <span id="rivalMoveState" class="move-state thinking">Pensando…</span>
           </div>
-          <div id="rivalLastEvent" class="last-event rival-last-event" aria-live="polite">Aguardando jogada do rival.</div>
-          <div id="rivalTimeBonus" class="time-bonus" aria-live="polite"></div>
-          <div id="rivalFeedback" class="play-feedback rival-feedback" aria-live="polite"></div>
           <div id="rivalBoard" class="board rival-board" role="grid" aria-label="Tabuleiro do rival"></div>
         </section>
       </div>
 
       <details class="special-help">
         <summary aria-label="Ajuda sobre peças especiais">
-          <span><b>4</b> ↔/↕ <i>•</i> <b>5</b> 🌈 <i>•</i> <b>T/L</b> 💣 <i>•</i> 👑 😈 💸 ⏳</span>
-          <span class="help-mark" aria-hidden="true">?</span>
+          <span class="help-title">GUIA DAS JOIAS</span>
+          <span class="help-symbols" aria-hidden="true">↔ ◆ 💣 👑 😈 💸 ⏳</span>
+          <span class="help-mark" aria-hidden="true">▾</span>
         </summary>
         <div class="special-help-body">
-          <span><b>4</b> cria ↔/↕ dentro da peça e a seta varre a linha/coluna inteira</span>
-          <span><b>5</b> 🌈 cria arco-íris e limpa uma cor</span>
-          <span><b>T/L</b> cria 💣 dentro da peça e explode 3×3</span>
-          <span>⭐ com 👑 dentro: ativa <b>pontos x2 por 8s</b>; se pegar outra com boost ativo, vira <b>x4 por 10s</b></span>
-          <span>🟣 com 😈 dentro: continua roxo e limpa todas as peças roxas</span>
-          <span>🔶 com 💸 dentro: gera <b>R$ 0,35</b> direto</span>
-          <span>🟢 com ⏳ dentro: concede <b>+2s extras</b></span>
-          <span><b>Tempo:</b> ↔/↕ +1s · 💣/🌈 +2s · cascata +1s · especiais ativados até +2s</span>
+          <span><b>4</b> cria ↔/↕: <b>+4s</b> na Corrida ou <b>+1 movimento</b> em Turnos</span>
+          <span><b>5</b> cria ◆ Arco-íris multicolorido, que limpa uma cor: <b>+5s</b> ou <b>+1 movimento</b></span>
+          <span><b>T/L</b> cria 💣 3×3: <b>+6s</b> ou <b>+1 movimento</b></span>
+          <span>👑 ativa <b>x2 por 8s</b>; novas coroas ativas dobram de novo e somam +2s por nível. Em Turnos: x2/2 jog., x4/3 jog., x8/4 jog...</span>
+          <span>😈 Corrida: tira <b>2s</b> do rival. Turnos: tira <b>5s</b> do próximo turno do rival, até o mínimo de 30s</span>
+          <span>💸 gera <b>R$ 3,00</b> direto</span>
+          <span>⏳ <b>congela o seu relógio por 10s</b> enquanto você continua jogando</span>
+          <span><b>Cascatas na Corrida:</b> x2 +1s · x3 ou maior +2s. Tempo/movimentos extras entram juntos ao fim da cascata e não têm teto</span>
+          <span><b>Turnos:</b> cada vez dura até <b>90s</b>; animações/cascatas pausam o relógio e movimentos extras podem acumular sem limite</span>
         </div>
       </details>
 
@@ -261,11 +308,11 @@
             <button type="button" class="dev-preset" data-dev-preset="row">↔ Seta</button>
             <button type="button" class="dev-preset" data-dev-preset="col">↕ Seta</button>
             <button type="button" class="dev-preset" data-dev-preset="bomb">💣 Bomba</button>
-            <button type="button" class="dev-preset" data-dev-preset="prism">🌈 Arco-íris</button>
+            <button type="button" class="dev-preset" data-dev-preset="prism">◆ Arco-íris</button>
             <button type="button" class="dev-preset" data-dev-preset="crown">👑 Coroa</button>
             <button type="button" class="dev-preset" data-dev-preset="devil">😈 Diabinho</button>
             <button type="button" class="dev-preset" data-dev-preset="cash">💸 Dinheiro</button>
-            <button type="button" class="dev-preset" data-dev-preset="clock">⏳ Tempo</button>
+            <button type="button" class="dev-preset" data-dev-preset="clock">⏳ Congelar tempo</button>
           </div>
         </div>
         <div class="dev-tools-actions">
@@ -275,7 +322,6 @@
         <div id="devStatus" class="dev-status">Selecione posição, crie a peça e use “Executar peça da casa”.</div>
       </section>
 
-      <div id="flightLayer" class="flight-layer" aria-hidden="true"></div>
 
       <div class="game-actions">
         <button id="quitBtn" type="button">✕ SAIR</button>
@@ -299,6 +345,7 @@
     </section>
   </main>
 
+  <div id="flightLayer" class="flight-layer" aria-hidden="true"></div>
   <script type="module" src="app.js"></script>
 </body>
 </html>

@@ -1,0 +1,802 @@
+/* Jewel atelier: visual skin only. Rules and animation timelines remain in
+   app.js/styles.css; no animated brightness, particles or external assets. */
+:root {
+  --bg: #090718;
+  --panel: #17112bee;
+  --panel-2: #221a3b;
+  --text: #fff6ec;
+  --muted: #b4a6cd;
+  --accent: #f3cd83;
+  --line: #c0a1f02e;
+  --jewel-gold: #f3cd83;
+  --jewel-blue: #89ceff;
+  --jewel-pink: #ee8bc9;
+}
+html {
+  background: #090718;
+}
+body {
+  min-height: 100vh;
+  min-height: 100svh;
+  background:
+    radial-gradient(ellipse at 15% 22%, #46216955, transparent 48%),
+    radial-gradient(ellipse at 90% 55%, #123f654d, transparent 52%),
+    linear-gradient(155deg, #171027, #0b0a21 50%, #120b20);
+  isolation: isolate;
+}
+body::before,
+body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+}
+body::before {
+  background:
+    linear-gradient(125deg, transparent 20%, #bb83ef08 20.1%, transparent 39%),
+    linear-gradient(55deg, transparent 62%, #6badf10a 62.1%, transparent 80%),
+    radial-gradient(ellipse at 50% -10%, #a651bc26, transparent 60%);
+}
+body::after {
+  background-image:
+    radial-gradient(circle, #ffe1a073 0 0.7px, transparent 1.2px),
+    radial-gradient(circle, #baacfd59 0 0.7px, transparent 1.3px),
+    radial-gradient(circle, #91d5ff40 0 1px, transparent 1.6px);
+  background-size:
+    193px 241px,
+    337px 307px,
+    463px 379px;
+  background-position:
+    28px 18px,
+    111px 157px,
+    68px 212px;
+}
+.app-shell {
+  position: relative;
+}
+.jewel-emblem {
+  display: inline-block;
+  width: 34px;
+  height: 34px;
+  flex: 0 0 auto;
+  clip-path: polygon(23% 0, 77% 0, 100% 34%, 50% 100%, 0 34%);
+  background:
+    linear-gradient(60deg, transparent 49%, #fff4c83d 50%, transparent 51%),
+    conic-gradient(
+      from 30deg at 50% 34%,
+      #fcdfa1 0 60deg,
+      #9b629e 60deg 120deg,
+      #664884 120deg 150deg,
+      #f0c875 150deg 205deg,
+      #ffe5b1 205deg 240deg,
+      #bb84b7 240deg 300deg,
+      #fff0c4 300deg
+    );
+}
+.arena-masthead {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  margin: -4px auto 20px;
+  color: #eed9b9;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 16px;
+  letter-spacing: 0.2em;
+  text-shadow: 0 2px 12px #e0a0d626;
+}
+.arena-masthead b {
+  color: #fff1dc;
+  font-weight: 400;
+}
+.arena-masthead .jewel-emblem {
+  width: 22px;
+  height: 25px;
+}
+.masthead-line {
+  width: min(14vw, 140px);
+  height: 1px;
+  background: linear-gradient(90deg, transparent, #c493706b);
+}
+.masthead-line:last-child {
+  rotate: 180deg;
+}
+
+/* Player plaques, inset score, and a floating central crest. */
+.hud {
+  gap: 18px;
+  grid-template-columns: minmax(0, 1fr) minmax(170px, 210px) minmax(0, 1fr);
+}
+.hud > .hud-side {
+  --plaque-line: #b58b5880;
+  --plaque-light: #edbc6f1a;
+  background:
+    radial-gradient(ellipse at 50% 0, var(--plaque-light), transparent 70%),
+    linear-gradient(165deg, #2b1d44f5, #120f26fa 70%);
+  border: 1px solid var(--plaque-line);
+  border-radius: 30px 12px 30px 12px;
+  box-shadow:
+    inset 0 0 0 4px #100c2399,
+    inset 0 0 0 5px #ddbae40e,
+    0 8px 22px #03021166;
+  padding: 13px 18px 10px;
+  gap: 4px;
+}
+.hud > .rival-hud {
+  --plaque-line: #6baae075;
+  --plaque-light: #77aef523;
+  border-radius: 12px 30px 12px 30px;
+}
+.hud-side::before {
+  content: "";
+  position: absolute;
+  top: -2px;
+  left: 22%;
+  width: 56%;
+  height: 2px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    var(--jewel-gold),
+    transparent
+  );
+}
+.rival-hud::before {
+  background: linear-gradient(
+    90deg,
+    transparent,
+    var(--jewel-blue),
+    transparent
+  );
+}
+.hud-side > small {
+  color: #f0d4a1;
+  letter-spacing: 0.2em;
+  padding-bottom: 3px;
+}
+.rival-hud > small {
+  color: #b9e1ff;
+}
+.metric-label {
+  color: #c1afd4;
+  font-size: 9px;
+  letter-spacing: 0.12em;
+}
+.score-metric {
+  padding: 4px 6px;
+  border-radius: 12px;
+  background: radial-gradient(ellipse, #c9a2f412, transparent 75%);
+}
+.hud .score-number {
+  color: #fff3d7;
+  text-shadow:
+    0 2px 0 #64405e,
+    0 0 18px #f4c76e26;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 38px;
+}
+.rival-hud .score-number {
+  color: #e2f2ff;
+  text-shadow:
+    0 2px 0 #343963,
+    0 0 18px #79baff30;
+}
+.hud .side-clock {
+  color: #ffdd99;
+  text-shadow: 0 1px 6px #dd9b5026;
+}
+.hud .time-track {
+  height: 8px;
+  border-color: #d7ac8059;
+  background: #08091a;
+  box-shadow:
+    0 1px 0 #f0d4a112,
+    inset 0 1px 3px #000;
+}
+.time-track i {
+  background: linear-gradient(90deg, #bd73bf, #e6a0aa 48%, #ffdda0);
+  box-shadow: 0 0 9px #f8bc8440;
+}
+.rival-hud .time-track i {
+  background: linear-gradient(90deg, #796ed3, #7daef2 50%, #b1e9ff);
+  box-shadow: 0 0 9px #74baff40;
+}
+.money-metric {
+  border-top: 1px solid #c1a0e31a;
+  padding-top: 5px;
+}
+/* Give each total the same centre line as its label. Rewards have their own
+   reserved row, so an empty/visible bonus never pushes the total sideways. */
+.hud .score-metric,
+.hud .money-metric {
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: 12px minmax(38px, auto) 18px;
+  align-content: start;
+  padding: 4px 6px;
+}
+.hud .score-metric > *,
+.hud .money-metric > * {
+  min-width: 0;
+  text-align: center;
+}
+.side-money {
+  color: #e5cdb3;
+}
+.freeze-status {
+  color: #b3eaff;
+  text-shadow: 0 0 8px #5bcfff30;
+}
+.effects-metric > .hud-reward {
+  background: #19132c;
+  border-radius: 10px 3px;
+}
+.hud > .match-center {
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  padding: 6px;
+  gap: 7px;
+}
+.match-center::before {
+  content: "◆";
+  display: block;
+  margin: 0 auto 3px;
+  color: #f2c783;
+  font-size: 28px;
+  line-height: 1;
+  text-shadow: 0 0 22px #f2bd7645;
+}
+.match-center > strong {
+  font-family: Georgia, "Times New Roman", serif;
+  font-weight: 400;
+  font-size: 26px;
+  letter-spacing: 0.05em;
+  color: #ffe4b2;
+}
+.match-center > small {
+  color: #c4a6d8;
+  letter-spacing: 0.22em;
+}
+.money-lead {
+  border-top-color: #b48fce36;
+  padding-top: 12px;
+}
+.money-lead strong {
+  font-size: 23px;
+}
+.money-rate {
+  color: #ad99bf !important;
+}
+.status-row {
+  padding: 2px 9px 13px;
+  font-size: 11px;
+}
+#comboLabel {
+  color: #c4b3d9;
+  font-weight: 600;
+}
+.dev-mode-badge {
+  color: #c8b5da;
+  background: #1b1430;
+  border-color: #b08ac138;
+  font-size: 8px;
+}
+
+/* Metallic bezels frame a stationary checkerboard under the falling gems. */
+.board-panel {
+  --frame: #cba575;
+  background:
+    linear-gradient(155deg, #291b42, #121026 65%) padding-box,
+    linear-gradient(
+        135deg,
+        #fee1a2,
+        #8b6059 21%,
+        #483448 48%,
+        #b99468 77%,
+        #f3d198
+      )
+      border-box;
+  border: 2px solid transparent !important;
+  border-radius: 25px 12px 25px 12px;
+  padding: 15px;
+  box-shadow:
+    inset 0 0 0 4px #120b237a,
+    0 0 0 1px #100a20,
+    0 0 24px #c0966320,
+    0 16px 32px #02020c7a;
+}
+.board-panel.rival-panel {
+  --frame: #86bceb;
+  background:
+    linear-gradient(155deg, #1d2045, #100e25 65%) padding-box,
+    linear-gradient(
+        135deg,
+        #b2e9ff,
+        #52739a 23%,
+        #332846 48%,
+        #657aba 77%,
+        #b0dcff
+      )
+      border-box;
+  box-shadow:
+    inset 0 0 0 4px #0d10247a,
+    0 0 0 1px #100a20,
+    0 0 24px #668eff20,
+    0 16px 32px #02020c7a;
+}
+.board-panel::after {
+  content: "";
+  position: absolute;
+  inset: 5px;
+  border: 1px solid #d4bbf019;
+  border-radius: 19px 7px 19px 7px;
+  pointer-events: none;
+}
+.board-panel-head {
+  padding: 0 5px 13px;
+}
+.board-panel-head > div {
+  position: relative;
+  padding-left: 18px;
+  gap: 3px;
+}
+.board-panel-head > div::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 8px;
+  width: 8px;
+  height: 8px;
+  rotate: 45deg;
+  border: 1px solid var(--frame);
+  background: linear-gradient(135deg, var(--frame), #593657);
+  box-shadow: 0 0 9px #d6b1ef26;
+}
+.board-panel-head small {
+  color: #a99abc;
+  font-size: 8px;
+  letter-spacing: 0.15em;
+}
+.board-panel-head strong {
+  color: #f4dfbc;
+  font-size: 13px;
+  letter-spacing: 0.07em;
+}
+.rival-panel .board-panel-head strong {
+  color: #c3e6ff;
+}
+.board {
+  background-color: #130e25;
+  background-image: conic-gradient(
+    #352750 25%,
+    #211936 0 50%,
+    #352750 0 75%,
+    #211936 0
+  );
+  background-size: 25% 25%;
+  background-origin: content-box;
+  background-clip: content-box;
+  border: 1px solid #c4a1e438;
+  border-radius: 14px;
+  box-shadow:
+    0 0 0 3px #080716,
+    0 0 0 4px #a77ba02b,
+    inset 0 0 18px #020109a6;
+}
+.gem.shade-a,
+.gem.shade-b {
+  background: transparent;
+}
+.gem::before {
+  border-radius: 20%;
+}
+.gem::after {
+  background: #fff2df30;
+}
+.versus-mark {
+  position: relative;
+  border-radius: 12px 3px;
+  border-color: #b28eb779;
+  background: linear-gradient(150deg, #43295a, #211331);
+  color: #fce1ac;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 16px;
+  box-shadow:
+    0 0 0 4px #b998c40a,
+    0 0 22px #c169bd24;
+}
+.versus-mark::before,
+.versus-mark::after {
+  content: "";
+  position: absolute;
+  width: 1px;
+  height: 38px;
+  left: 50%;
+  background: linear-gradient(transparent, #b587b478);
+}
+.versus-mark::before {
+  bottom: calc(100% + 7px);
+}
+.versus-mark::after {
+  top: calc(100% + 7px);
+  rotate: 180deg;
+}
+.move-state {
+  border-radius: 8px 3px;
+  border-color: #d1a5f242;
+  background: linear-gradient(145deg, #463052, #20172c);
+  color: #e0c3ee;
+  box-shadow: inset 0 1px 0 #efd7ff0d;
+}
+.move-state.playing {
+  color: #ffe3ac;
+  border-color: #dcb27180;
+  background: linear-gradient(145deg, #59405a, #33203f);
+}
+.move-state.thinking {
+  color: #b9e2ff;
+  border-color: #90bde452;
+  background: linear-gradient(145deg, #2b3d59, #192039);
+}
+.move-state.waiting {
+  color: #bba7cc;
+  border-color: #a887bc38;
+  background: #241932;
+}
+.reward-flight {
+  border-radius: 12px 4px;
+  background: linear-gradient(145deg, #352247fa, #171029fa);
+  box-shadow:
+    inset 0 1px 0 #f7d8ff24,
+    0 5px 18px #09041480;
+}
+
+/* An engraved guide rail and tactile, bevelled controls. */
+.special-help {
+  width: min(650px, 100%);
+  margin: 22px auto 0;
+}
+.special-help summary {
+  min-height: 46px;
+  padding: 9px 16px;
+  gap: 16px;
+  border-radius: 15px 4px;
+  border-color: #b995d057;
+  background: linear-gradient(110deg, #2b1d41eb, #15112ce6, #241b3aeb);
+  box-shadow:
+    inset 0 1px 0 #f6dcff0d,
+    0 7px 18px #06041433;
+}
+.help-title {
+  color: #ebd4b0;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+}
+.help-symbols {
+  font-size: 15px;
+  letter-spacing: 0.15em;
+  color: #d7b7f3;
+}
+.help-mark {
+  margin-left: auto;
+  border: 0;
+  color: #d8b4e9;
+  font-size: 19px;
+}
+.special-help[open] .help-mark {
+  rotate: 180deg;
+}
+.special-help-body {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0 20px;
+  margin: 8px 0 0;
+  padding: 10px 16px;
+  border: 1px solid #b595d027;
+  border-radius: 4px 14px;
+  background: #150f28f5;
+}
+.special-help-body span {
+  padding: 11px 0;
+  border: 0;
+  border-bottom: 1px solid #bca5d21c;
+  border-radius: 0;
+  background: none;
+  line-height: 1.6;
+  color: #c7b8d8;
+  font-size: 11px;
+}
+.game-actions {
+  width: min(230px, 100%);
+  margin-top: 17px;
+}
+#quitBtn,
+.menu-footer .start-button,
+.result-card button {
+  border-radius: 14px 5px;
+  border: 1px solid #bc92c47a;
+  background: linear-gradient(180deg, #4c315e, #302040 58%, #261835);
+  box-shadow:
+    inset 0 1px 0 #f5d9ff38,
+    inset 0 -3px 0 #120c247a,
+    0 5px 14px #09051666;
+  color: #f0dbea;
+  letter-spacing: 0.1em;
+  font-size: 11px;
+}
+.menu-footer .start-button,
+.result-card .primary {
+  border-color: #ebcc87;
+  background: linear-gradient(180deg, #f2d99d, #cea265 54%, #aa774b);
+  color: #291731;
+  text-shadow: 0 1px 0 #fff0c766;
+  box-shadow:
+    inset 0 1px 0 #fff3c9,
+    inset 0 -3px 0 #68412e66,
+    0 5px 22px #dfac6326;
+}
+@media (hover: hover) {
+  #quitBtn:hover,
+  .result-card button:hover {
+    border-color: #f0c6f3;
+  }
+  .menu-footer .start-button:hover {
+    border-color: #fff1c8;
+  }
+}
+.menu-hero .gem-logo {
+  filter: drop-shadow(0 0 18px #c084fc40);
+}
+.menu-hero .jewel-emblem {
+  width: 62px;
+  height: 70px;
+}
+.menu-hero h1,
+.result-card h2 {
+  font-family: Georgia, "Times New Roman", serif;
+  font-weight: 400;
+  color: #ffe3b3;
+}
+.menu-card,
+.result-card {
+  border-radius: 26px 10px;
+  background: linear-gradient(155deg, #2b1d40f5, #130f25fa);
+  border-color: #c6a27466;
+  box-shadow:
+    inset 0 0 0 4px #c5a2e308,
+    0 18px 50px #07031266;
+}
+.menu-section-head small,
+.field-help,
+.mode-copy small {
+  color: #ae9bbc;
+}
+.menu-card select {
+  border-radius: 10px 4px;
+  background: #160f29;
+  border-color: #9774ad59;
+}
+.menu-card .mode-option {
+  border-radius: 14px 5px;
+  background: #241733;
+}
+.menu-card .mode-option.active {
+  background: linear-gradient(135deg, #69457070, #342039);
+  border-color: #d9b374;
+  box-shadow: inset 0 1px 0 #ffe4b326;
+}
+.menu-card .mode-check,
+.menu-card .mode-icon {
+  border-radius: 6px 2px;
+}
+.result-scores span {
+  border-radius: 14px 5px;
+  background: #aa7bbb10;
+  border: 1px solid #c2a1d62b;
+}
+
+@media (min-width: 721px) {
+  .hud > .hud-side {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    column-gap: 12px;
+  }
+  .hud-side > small {
+    grid-column: 1 / -1;
+  }
+  .hud .score-metric {
+    grid-row: 2;
+    grid-column: 1;
+  }
+  .hud .hud-clock-row {
+    grid-row: 2;
+    grid-column: 2;
+  }
+  .hud .time-track {
+    grid-row: 3;
+    grid-column: 2;
+  }
+  .hud .freeze-status {
+    grid-row: 4;
+    grid-column: 2;
+  }
+  .hud .money-metric {
+    grid-row: 3 / 5;
+    grid-column: 1;
+  }
+  .hud .effects-metric {
+    grid-row: 5;
+    grid-column: 1 / -1;
+  }
+  /* Turns get a full-width time/moves row so attack labels do not squeeze
+     against the adjacent counter on portrait tablets. */
+  .hud-side:has(.moves-metric:not([hidden])) .money-metric {
+    grid-row: 2;
+    grid-column: 2;
+    border-top: 0;
+  }
+  .hud-side:has(.moves-metric:not([hidden])) .hud-clock-row {
+    grid-row: 3;
+    grid-column: 1 / -1;
+  }
+  .hud-side:has(.moves-metric:not([hidden])) .time-track {
+    grid-row: 4;
+    grid-column: 1 / -1;
+  }
+  .hud-side:has(.moves-metric:not([hidden])) .freeze-status {
+    grid-row: 5;
+    grid-column: 1 / -1;
+  }
+  .hud-side:has(.moves-metric:not([hidden])) .effects-metric {
+    grid-row: 6;
+    grid-column: 1 / -1;
+  }
+}
+@media (min-width: 721px) and (max-width: 1000px) {
+  .hud {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 9px;
+  }
+  .player-hud {
+    grid-column: 1;
+    grid-row: 1;
+  }
+  .rival-hud {
+    grid-column: 2;
+    grid-row: 1;
+  }
+  .hud > .match-center {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 14px;
+    padding: 5px;
+  }
+  .match-center::before {
+    margin: 0;
+    font-size: 17px;
+  }
+  .match-center > strong {
+    font-size: 17px;
+  }
+  .match-center #centerSub,
+  .match-center .money-rate {
+    display: none;
+  }
+  .match-center .money-lead {
+    margin: 0;
+    padding: 0 0 0 14px;
+    border: 0;
+    border-left: 1px solid #b28bb34d;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .match-center .money-lead strong {
+    font-size: 17px;
+  }
+  .solo-game .player-hud {
+    grid-column: 1 / -1;
+  }
+}
+@media (max-width: 720px) {
+  .arena-masthead {
+    margin: -3px auto 14px;
+    font-size: 12px;
+    gap: 8px;
+  }
+  .arena-masthead .jewel-emblem {
+    width: 18px;
+    height: 21px;
+  }
+  .hud {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    background: #110b20f7;
+    border-radius: 20px 7px;
+    gap: 6px;
+    box-shadow: 0 8px 16px #08041340;
+  }
+  .hud > .hud-side {
+    padding: 10px 8px 7px;
+    border-radius: 21px 7px;
+  }
+  .hud > .rival-hud {
+    border-radius: 7px 21px;
+  }
+  .hud .score-number {
+    font-size: 30px;
+  }
+  .hud > .match-center {
+    padding: 5px 8px;
+    gap: 4px 9px;
+  }
+  .match-center::before {
+    display: none;
+  }
+  .match-center > strong {
+    font-size: 14px;
+  }
+  .match-center .money-lead strong {
+    font-size: 14px;
+  }
+  .board-panel {
+    padding: 10px;
+    border-radius: 21px 9px;
+  }
+  .board-panel-head {
+    padding: 1px 3px 10px;
+  }
+  .versus-arena {
+    gap: 17px;
+  }
+  .special-help {
+    margin-top: 17px;
+  }
+  .special-help summary {
+    padding: 8px 11px;
+    gap: 10px;
+  }
+  .help-title {
+    font-size: 9px;
+    letter-spacing: 0.08em;
+  }
+  .help-symbols {
+    font-size: 13px;
+    letter-spacing: 0.03em;
+  }
+  .special-help-body {
+    grid-template-columns: 1fr;
+  }
+  .menu-hero .jewel-emblem {
+    width: 44px;
+    height: 50px;
+  }
+}
+@media (max-width: 380px) {
+  .hud > .hud-side {
+    padding: 9px 5px 6px;
+  }
+  .hud-clock-row {
+    gap: 4px;
+  }
+  .hud .side-clock {
+    font-size: 16px;
+  }
+  .hud .score-number {
+    font-size: 27px;
+  }
+  .help-symbols {
+    font-size: 12px;
+    letter-spacing: 0;
+  }
+  .help-title {
+    font-size: 8px;
+  }
+  .board-panel-head > div {
+    padding-left: 13px;
+  }
+}

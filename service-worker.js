@@ -1,5 +1,5 @@
 // Estrutura adaptada do service worker do Buraco Findom.
-const CACHE_NAME = 'joias-findom-v17';
+const CACHE_NAME = 'joias-findom-v23-power-audio';
 
 const ASSETS = [
   './',
@@ -7,12 +7,18 @@ const ASSETS = [
   './app.js',
   './firebase.js',
   './styles.css',
+  './jewel-theme.css',
   './manifest.json',
   './manifest.webmanifest',
   './icon-192.png',
   './icon-512.png',
   './audio/gem-match.mp3',
   './audio/bomb.mp3',
+  './audio/clock.mp3',
+  './audio/extra-move.mp3',
+  './audio/crown.mp3',
+  './audio/cash.mp3',
+  './audio/devil.mp3',
 ];
 
 self.addEventListener('install', (event) => {

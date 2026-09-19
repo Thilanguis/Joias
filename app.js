@@ -9,7 +9,7 @@ const GEM_TYPES = Object.freeze([
 ]);
 const GEMS = GEM_TYPES.map((gem) => gem.icon);
 const POWER_MARK = Object.freeze({ crown: '👑', devil: '😈', cash: '💸', clock: '⏳' });
-const POWER_NAME = Object.freeze({ crown: 'Coroa', devil: 'Diabinho', cash: 'Grana extra', clock: 'Tempo extra' });
+const POWER_NAME = Object.freeze({ crown: 'Coroa', devil: 'Diabinho', cash: 'Grana extra', clock: 'Congela-tempo' });
 const POWER_TYPE = Object.freeze({ crown: 2, devil: 3, cash: 1, clock: 4 });
 const SCORE_BY_SIZE = { 3: 30, 4: 70, 5: 120 };
 const BOT_PROFILES = Object.freeze({
@@ -17,18 +17,30 @@ const BOT_PROFILES = Object.freeze({
   jade: { name: 'Jade', pool: 4, think: [900, 1650], between: [650, 1100] },
   ruby: { name: 'Ruby', pool: 2, think: [600, 1150], between: [480, 820] },
 });
-const SPECIAL_MARK = Object.freeze({ row: '↔', col: '↕', bomb: '💣', prism: '🌈' });
+const SPECIAL_MARK = Object.freeze({ row: '↔', col: '↕', bomb: '💣', prism: '◆' });
 const SPECIAL_NAME = Object.freeze({ row: 'Seta horizontal', col: 'Seta vertical', bomb: 'Bomba 3×3', prism: 'Arco-íris' });
 const SPECIAL_PRIORITY = Object.freeze({ row: 1, col: 1, bomb: 2, prism: 3 });
-const ANIM = Object.freeze({ swap: 230, invalid: 320, match: 275, cascadePause: 95 });
+const ANIM = Object.freeze({ swap: 250, invalid: 340, matchPrime: 90, match: 340, cascadePause: 150, specialBorn: 520 });
 const MATCH_AUDIO_SRC = './audio/gem-match.mp3';
 const BOMB_AUDIO_SRC = './audio/bomb.mp3';
+const POWER_AUDIO = Object.freeze({
+  clock: { src: './audio/clock.mp3', volume: 0.22, duration: 1.25 },
+  moves: { src: './audio/extra-move.mp3', volume: 0.75, voice: true },
+  crown: { src: './audio/crown.mp3', volume: 0.48 },
+  cash: { src: './audio/cash.mp3', volume: 0.6 },
+  devil: { src: './audio/devil.mp3', volume: 0.65, voice: true },
+});
 const MATCH_AUDIO_RATE = Object.freeze([1, 1.07, 1.14, 1.21, 1.26]);
 const DEFAULT_POINT_VALUE = 0.01; // 100 pontos = R$ 1,00
-const CROWN_BOOST_SECONDS = 8;
-const CROWN_STACK_SECONDS = 10;
-const DIRECT_CASH_BONUS = 0.35;
-const CLOCK_BONUS_SECONDS = 2;
+const CROWN_BASE_SECONDS = 8;
+const CROWN_STEP_SECONDS = 2;
+const CROWN_BASE_MOVES = 2;
+const DIRECT_CASH_BONUS = 3;
+const CLOCK_FREEZE_SECONDS = 10;
+const DEVIL_RACE_PENALTY_SECONDS = 2;
+const DEVIL_TURN_PENALTY_SECONDS = 5;
+const TURN_SECONDS = 90;
+const MIN_TURN_SECONDS = 30;
 
 
 const $ = (id) => document.getElementById(id);
@@ -48,9 +60,249 @@ let matchAudioBuffer = null;
 let matchAudioLoadPromise = null;
 let bombAudioBuffer = null;
 let bombAudioLoadPromise = null;
+let commonAudioGain = null;
+const powerAudioLoads = new Map();
+const powerAudioQueue = [];
+const activePowerAudio = new Set();
+let powerAudioTimer = null;
+let powerAudioEpoch = 0;
+let lastPowerAudioAt = -Infinity;
 let scoreDisplay = { player: 0, rival: 0 };
 let scoreTarget = { player: 0, rival: 0 };
 let scoreAnimationFrame = { player: null, rival: null };
+// Presentation only: rules and online snapshots always use the real state.
+// Read at the match → travel → hover before landing → impact → count → fade.
+const HUD_REWARD = Object.freeze({ read: 360, approach: 980, land: 1120, arrival: 1300, update: 1420, fade: 1840, end: 2040, stagger: 160 });
+const hudHolds = new Set();
+const hudLanes = new Map();
+const hudTimers = new Set();
+const rewardFlights = new Set();
+let rewardGeometryRevision = 0;
+window.addEventListener('scroll', () => { rewardGeometryRevision += 1; }, { passive: true, capture: true });
+window.addEventListener('resize', () => { rewardGeometryRevision += 1; }, { passive: true });
+let onlineHudRivalTime = null;
+
+function hudLater(callback, ms) {
+  const match = state;
+  const timer = setTimeout(() => {
+    hudTimers.delete(timer);
+    if (state === match && state) callback();
+  }, ms);
+  hudTimers.add(timer);
+}
+
+function holdHudChange(side, kind, amount) {
+  const hold = { side, kind, amount, match: state, round: state?.currentRound };
+  hudHolds.add(hold);
+  return hold;
+}
+
+function heldHudAmount(side, kind) {
+  let total = 0;
+  for (const hold of hudHolds) {
+    if (hold.match !== state || hold.side !== side || hold.kind !== kind) continue;
+    if (kind === 'moves' && (state.currentSide !== side || hold.round !== state.currentRound)) continue;
+    total += hold.amount;
+  }
+  return total;
+}
+
+function shownHudTime(side) {
+  return Math.max(0, timeFor(side) - heldHudAmount(side, 'time'));
+}
+
+function shownTurnTime(side) {
+  let pending = 0;
+  for (const hold of hudHolds) {
+    if (hold.match === state && hold.side === side && hold.kind === 'penalty'
+      && hold.appliedToTurn && hold.round === state.currentRound) pending += hold.amount;
+  }
+  return Math.max(0, state.turnTimeLeft + pending);
+}
+
+function setHudText(node, text) {
+  if (node && node.textContent !== text) node.textContent = text;
+}
+
+function pulseHud(node, attack = false) {
+  if (!node?.animate || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  node.getAnimations().forEach((animation) => animation.cancel());
+  node.animate(attack
+    ? [{ transform: 'translateX(0)' }, { transform: 'translateX(-3px)' }, { transform: 'translateX(2px)' }, { transform: 'translateX(0)' }]
+    : [{ transform: 'scale(1)' }, { transform: 'scale(1.045)' }, { transform: 'scale(1)' }],
+  { duration: 320, easing: 'ease-out' });
+}
+
+function queueHudReward(side, kind, amount, { hold = null, wait = 0, label = '', sourceSide = side, origin = null, stack = 0 } = {}) {
+  if (!state || (!amount && !label)) return;
+  const destination = { score: 'Score', cash: 'Money', time: 'Clock', moves: 'Moves', crown: 'CrownBoostTime', penalty: 'Clock' }[kind];
+  const laneId = `${side}${destination}Reward`;
+  const node = $(laneId);
+  if (!node) { if (hold) hudHolds.delete(hold); return; }
+  const reservation = hold || holdHudChange(side, kind, amount);
+  const queue = hudLanes.get(laneId) || [];
+  // Frequent remote snapshots may arrive while a reward is being read. Keep one
+  // accumulated follow-up per destination instead of building an animation backlog.
+  const pending = queue.length > 1 ? queue[queue.length - 1] : null;
+  if (pending && !label && !pending.customLabel && pending.kind === kind
+    && pending.reservation.round === reservation.round
+    && Math.sign(pending.reservation.amount) === Math.sign(amount)) {
+    pending.reservation.amount += reservation.amount;
+    hudHolds.delete(reservation);
+    pending.text = hudRewardText(side, kind, pending.reservation.amount, label);
+    return;
+  }
+  hudLanes.set(laneId, queue);
+  queue.push({ reservation, text: hudRewardText(side, kind, amount, label), customLabel: !!label, side, kind, destination, wait, sourceSide, origin, stack });
+  if (queue.length === 1) runHudReward(laneId);
+}
+
+function hudRewardText(side, kind, amount, label = '') {
+  return label || (kind === 'score' ? `+${Math.round(amount).toLocaleString('pt-BR')}`
+    : kind === 'cash' ? `+${formatMoney(amount)}`
+      : kind === 'moves' ? `+${amount} MOV.`
+        : kind === 'crown' ? `👑 x${crownMultiplierFor(side)}`
+          : amount < 0 ? `😈 −${Number(Math.abs(amount).toFixed(1)).toLocaleString('pt-BR')}s` : `+${Number(amount.toFixed(1)).toLocaleString('pt-BR')}s`);
+}
+
+function rewardOrigin(positions) {
+  const cells = [...positions].map((pos) => typeof pos === 'string' ? parseKey(pos) : pos);
+  if (!cells.length) return null;
+  return {
+    x: (cells.reduce((sum, pos) => sum + pos.c, 0) / cells.length + .5) / SIZE,
+    y: (cells.reduce((sum, pos) => sum + pos.r, 0) / cells.length + .5) / SIZE,
+  };
+}
+
+function startRewardFlight(job, target, slot) {
+  const layer = $('flightLayer');
+  const board = boardRoot(job.sourceSide);
+  if (!layer || !board || matchMedia('(prefers-reduced-motion: reduce)').matches) return null;
+  const token = document.createElement('div');
+  token.className = `reward-flight ${job.kind}${job.reservation.amount < 0 ? ' attack' : ''}`;
+  token.dataset.destination = `${job.side}${job.destination}`;
+  token.dataset.source = job.sourceSide;
+  token.textContent = job.text;
+  layer.appendChild(token);
+  const flight = { token, frame: null };
+  rewardFlights.add(flight);
+  const started = performance.now();
+  let revision = -1;
+  let from, to, approach;
+  const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
+  const mix = (a, b, t) => a + (b - a) * t;
+  const paint = (now) => {
+    const elapsed = now - started;
+    if (elapsed >= HUD_REWARD.arrival) return; // Handoff to the destination slot.
+    if (revision !== rewardGeometryRevision) {
+      // Batch geometry reads once at launch, then only on scroll/resize. No
+      // class-toggle/offsetWidth loops; animation restarts have their own token.
+      const sourceRect = board.getBoundingClientRect();
+      const targetRect = target.getBoundingClientRect();
+      const endRect = targetRect.width ? targetRect : slot.getBoundingClientRect();
+      const tokenRect = token.getBoundingClientRect();
+      const marginX = tokenRect.width / 2 + 8;
+      const marginY = tokenRect.height / 2 + 8;
+      const sourceY = clamp(sourceRect.top + sourceRect.height * (job.origin?.y ?? .35), marginY, innerHeight - marginY);
+      // Stack toward the available space so simultaneous rewards never collapse
+      // onto the same clamped point at the bottom edge of a phone.
+      const stackDirection = sourceY + 3 * 46 > innerHeight - marginY ? -1 : 1;
+      from = {
+        x: clamp(sourceRect.left + sourceRect.width * (job.origin?.x ?? .5), marginX, innerWidth - marginX),
+        y: clamp(sourceY + job.stack * 46 * stackDirection, marginY, innerHeight - marginY),
+      };
+      to = { x: endRect.left + endRect.width / 2, y: endRect.top + endRect.height / 2 };
+      const distance = Math.hypot(from.x - to.x, from.y - to.y) || 1;
+      const gap = Math.min(48, distance * .2);
+      approach = { x: to.x + (from.x - to.x) / distance * gap, y: to.y + (from.y - to.y) / distance * gap };
+      revision = rewardGeometryRevision;
+    }
+    let x = from.x, y = from.y;
+    token.dataset.phase = 'read';
+    if (elapsed >= HUD_REWARD.read && elapsed < HUD_REWARD.approach) {
+      const t = (elapsed - HUD_REWARD.read) / (HUD_REWARD.approach - HUD_REWARD.read);
+      const eased = t * t * (3 - 2 * t);
+      x = mix(from.x, approach.x, eased);
+      y = mix(from.y, approach.y, eased);
+      token.dataset.phase = 'travel';
+    } else if (elapsed >= HUD_REWARD.approach) {
+      const t = clamp((elapsed - HUD_REWARD.land) / (HUD_REWARD.arrival - HUD_REWARD.land), 0, 1);
+      x = mix(approach.x, to.x, t * t);
+      y = mix(approach.y, to.y, t * t);
+      token.dataset.phase = t > 0 ? 'land' : 'hover';
+    }
+    token.style.opacity = String(Math.min(1, elapsed / 100));
+    token.style.transform = `translate3d(${x}px, ${y}px, 0) translate(-50%, -50%)`;
+    flight.frame = requestAnimationFrame(paint);
+  };
+  flight.frame = requestAnimationFrame(paint);
+  return flight;
+}
+
+function removeRewardFlight(flight) {
+  if (!flight) return;
+  cancelAnimationFrame(flight.frame);
+  flight.token.remove();
+  rewardFlights.delete(flight);
+}
+
+function runHudReward(laneId) {
+  const queue = hudLanes.get(laneId);
+  const job = queue?.[0];
+  if (!job) return;
+  job.endAt = performance.now() + job.wait + HUD_REWARD.end;
+  hudLater(() => {
+    const node = $(laneId);
+    setHudText(node, job.text);
+    node.classList.toggle('attack', job.kind === 'penalty' || job.reservation.amount < 0);
+    const target = $(`${job.side}${job.destination}`);
+    const flight = startRewardFlight(job, target, node);
+    if (job.kind === 'cash' && job.reservation.amount > 0) playPowerSound('cash', job.side);
+    if (!flight) node.classList.add('visible'); // Reduced motion still gets reading time.
+    hudLater(() => {
+      removeRewardFlight(flight);
+      node.classList.add('visible');
+      pulseHud(target.getClientRects().length ? target : node, job.kind === 'penalty' || job.reservation.amount < 0);
+    }, HUD_REWARD.arrival);
+    hudLater(() => {
+      hudHolds.delete(job.reservation);
+      renderHud();
+    }, HUD_REWARD.update);
+    hudLater(() => node.classList.remove('visible'), HUD_REWARD.fade);
+    hudLater(() => {
+      setHudText(node, '');
+      queue.shift();
+      if (queue.length) runHudReward(laneId);
+      else hudLanes.delete(laneId);
+    }, HUD_REWARD.end);
+  }, job.wait);
+}
+
+function resetHudRewards() {
+  rewardFlights.forEach(removeRewardFlight);
+  onlineHudRivalTime = null;
+  hudTimers.forEach(clearTimeout);
+  hudTimers.clear();
+  hudHolds.clear();
+  hudLanes.clear();
+  document.querySelectorAll('.hud-reward').forEach((node) => {
+    node.classList.remove('visible', 'attack');
+    setHudText(node, '');
+  });
+  document.querySelectorAll('.freeze-status').forEach((node) => {
+    node.classList.remove('active');
+    node.textContent = '';
+  });
+}
+
+function remainingHudRewardTime() {
+  let remaining = 0;
+  for (const queue of hudLanes.values()) {
+    const queued = queue.slice(1).reduce((sum, job) => sum + job.wait + HUD_REWARD.end, 0);
+    remaining = Math.max(remaining, queue[0].endAt - performance.now() + queued);
+  }
+  return Math.max(0, remaining);
+}
 const DEV_HOST = window.location.hostname;
 const developerMode = ['localhost', '127.0.0.1', '::1'].includes(DEV_HOST) || /^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/.test(DEV_HOST) || DEV_HOST.endsWith('.local') || window.location.protocol === 'file:' || new URLSearchParams(window.location.search).get('dev') === '1';
 
@@ -92,6 +344,10 @@ async function ensureFirebase() {
 
 
 function showScreen(id) {
+  if (id !== 'gameScreen') {
+    resetHudRewards();
+    resetPowerAudio();
+  }
   screens.forEach((screen) => $(screen).classList.toggle('active', screen === id));
 }
 
@@ -113,6 +369,9 @@ function populateDevSelectors() {
     row.add(new Option(String(i), String(i - 1)));
     col.add(new Option(String(i), String(i - 1)));
   }
+  const center = Math.max(0, Math.floor((SIZE - 1) / 2));
+  row.value = String(center);
+  col.value = String(center);
   GEM_TYPES.forEach((gem, index) => type.add(new Option(`${gem.icon} ${gem.name}`, String(index))));
 }
 
@@ -142,7 +401,150 @@ function ensureMatchAudio() {
 function unlockMatchAudio() {
   const context = ensureMatchAudio();
   if (context?.state === 'suspended') context.resume().catch(() => {});
+  for (const kind of Object.keys(POWER_AUDIO)) void loadPowerAudio(kind);
+  ensureBombAudio();
 }
+
+function commonAudioBus(context) {
+  if (!commonAudioGain) {
+    commonAudioGain = context.createGain();
+    commonAudioGain.connect(context.destination);
+  }
+  return commonAudioGain;
+}
+
+function duckCommonAudio() {
+  if (!matchAudioContext) return;
+  const context = matchAudioContext;
+  const gain = commonAudioBus(context).gain;
+  gain.cancelScheduledValues(context.currentTime);
+  gain.setTargetAtTime(activePowerAudio.size ? 0.58 : 1, context.currentTime, 0.06);
+}
+
+function loadPowerAudio(kind) {
+  const context = ensureMatchAudio();
+  if (!context) return Promise.resolve(null);
+  if (!powerAudioLoads.has(kind)) {
+    powerAudioLoads.set(kind, fetch(POWER_AUDIO[kind].src)
+      .then((response) => {
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        return response.arrayBuffer();
+      })
+      .then((bytes) => context.decodeAudioData(bytes))
+      .catch((error) => { console.warn(`[Áudio] Poder ${kind} indisponível.`, error); return null; }));
+  }
+  return powerAudioLoads.get(kind);
+}
+
+function stopPowerAudio(job) {
+  if (!activePowerAudio.delete(job)) return;
+  const now = matchAudioContext.currentTime;
+  job.gain.gain.cancelScheduledValues(now);
+  job.gain.gain.setTargetAtTime(0, now, 0.015);
+  job.source.stop(now + 0.06);
+}
+
+function resetPowerAudio() {
+  powerAudioEpoch += 1;
+  clearTimeout(powerAudioTimer);
+  powerAudioTimer = null;
+  powerAudioQueue.length = 0;
+  for (const job of activePowerAudio) stopPowerAudio(job);
+  lastPowerAudioAt = -Infinity;
+  duckCommonAudio();
+}
+
+function pumpPowerAudio() {
+  clearTimeout(powerAudioTimer);
+  powerAudioTimer = null;
+  const now = performance.now();
+  for (let i = powerAudioQueue.length - 1; i >= 0; i--) {
+    const job = powerAudioQueue[i];
+    if (job.match !== state || now - job.created > 2600) powerAudioQueue.splice(i, 1);
+  }
+  if (!powerAudioQueue.length) return;
+  powerAudioQueue.sort((a, b) => b.priority - a.priority || a.created - b.created);
+  const job = powerAudioQueue[0];
+  // Incoming attacks can interrupt a quieter rival effect, never pile on top of it.
+  if (job.priority === 3) {
+    for (const active of activePowerAudio) {
+      if (active.priority < 3 && (activePowerAudio.size >= 2 || POWER_AUDIO[active.kind].voice)) stopPowerAudio(active);
+    }
+  }
+  const voiceBusy = POWER_AUDIO[job.kind].voice && [...activePowerAudio].some(active => POWER_AUDIO[active.kind].voice);
+  if (activePowerAudio.size >= 2 || voiceBusy || now - lastPowerAudioAt < 180) {
+    powerAudioTimer = setTimeout(pumpPowerAudio, 100);
+    return;
+  }
+  powerAudioQueue.shift();
+  const context = matchAudioContext;
+  if (context?.state !== 'running') return;
+  const config = POWER_AUDIO[job.kind];
+  const source = context.createBufferSource();
+  const gain = context.createGain();
+  const duration = Math.min(job.buffer.duration, config.duration || Infinity);
+  const volume = config.volume * (job.side === 'rival' && job.kind !== 'devil' ? 0.35 : 1);
+  source.buffer = job.buffer;
+  gain.gain.setValueAtTime(0, context.currentTime);
+  gain.gain.linearRampToValueAtTime(volume, context.currentTime + 0.025);
+  gain.gain.setValueAtTime(volume, context.currentTime + Math.max(0.025, duration - 0.16));
+  gain.gain.linearRampToValueAtTime(0, context.currentTime + duration);
+  source.connect(gain);
+  gain.connect(context.destination);
+  Object.assign(job, { source, gain });
+  activePowerAudio.add(job);
+  lastPowerAudioAt = now;
+  source.onended = () => {
+    activePowerAudio.delete(job);
+    source.disconnect();
+    gain.disconnect();
+    duckCommonAudio();
+    pumpPowerAudio();
+  };
+  source.start(0, 0, duration); // The clock is a short activation cue, never a loop.
+  duckCommonAudio();
+  if (powerAudioQueue.length) powerAudioTimer = setTimeout(pumpPowerAudio, 180);
+}
+
+async function playPowerSound(kind, side) {
+  const match = state;
+  const epoch = powerAudioEpoch;
+  const created = performance.now();
+  if (!match || document.hidden || !POWER_AUDIO[kind]) return;
+  const context = ensureMatchAudio();
+  if (!context) return;
+  if (context.state === 'suspended') {
+    try { await context.resume(); } catch { return; }
+  }
+  const buffer = await loadPowerAudio(kind);
+  if (!buffer || state !== match || epoch !== powerAudioEpoch || document.hidden || performance.now() - created > 2600) return;
+  // Coalesce repeated powers in a cascade, including while a clip is playing.
+  if ([...activePowerAudio, ...powerAudioQueue].some(job => job.kind === kind && job.side === side)) return;
+  const priority = kind === 'devil' && side === 'rival' ? 3 : side === 'player' ? 2 : 1;
+  if (powerAudioQueue.length >= 8) return;
+  powerAudioQueue.push({ kind, side, match, buffer, priority, created });
+  pumpPowerAudio();
+}
+
+function recordPowerAudio(kind, side) {
+  if (state?.opponentType === 'online' && side === 'player') {
+    state.powerAudioEvents ??= {};
+    state.powerAudioEvents[kind] = (state.powerAudioEvents[kind] || 0) + 1;
+  }
+  void playPowerSound(kind, side);
+}
+
+function syncPowerAudio(events = {}) {
+  const previous = state.rivalPowerAudioEvents || {};
+  for (const kind of ['clock', 'moves', 'crown', 'devil']) {
+    const count = Math.max(0, Number(events[kind]) || 0);
+    if (count > (previous[kind] || 0)) void playPowerSound(kind, 'rival');
+    previous[kind] = Math.max(previous[kind] || 0, count);
+  }
+  state.rivalPowerAudioEvents = previous;
+}
+
+document.addEventListener('visibilitychange', () => { if (document.hidden) resetPowerAudio(); });
 
 function ensureBombAudio() {
   const context = ensureMatchAudio();
@@ -167,30 +569,33 @@ function ensureBombAudio() {
 }
 
 async function playBombSound(side) {
+  const epoch = powerAudioEpoch;
   const context = ensureBombAudio();
   if (!context) return;
   if (context.state === 'suspended') {
     try { await context.resume(); } catch { return; }
   }
   const buffer = bombAudioBuffer || await bombAudioLoadPromise;
-  if (!buffer || context.state !== 'running') return;
+  if (!buffer || context.state !== 'running' || epoch !== powerAudioEpoch || document.hidden) return;
   const source = context.createBufferSource();
   const gain = context.createGain();
   source.buffer = buffer;
   gain.gain.value = side === 'rival' ? 0.23 : 0.38;
   source.connect(gain);
-  gain.connect(context.destination);
+  gain.connect(commonAudioBus(context));
+  source.onended = () => { source.disconnect(); gain.disconnect(); };
   source.start();
 }
 
 async function playMatchSound(side, cascade = 1) {
+  const epoch = powerAudioEpoch;
   const context = ensureMatchAudio();
   if (!context) return;
   if (context.state === 'suspended') {
     try { await context.resume(); } catch { return; }
   }
   const buffer = matchAudioBuffer || await matchAudioLoadPromise;
-  if (!buffer || context.state !== 'running') return;
+  if (!buffer || context.state !== 'running' || epoch !== powerAudioEpoch || document.hidden) return;
 
   const source = context.createBufferSource();
   const gain = context.createGain();
@@ -199,7 +604,8 @@ async function playMatchSound(side, cascade = 1) {
   source.playbackRate.value = MATCH_AUDIO_RATE[rateIndex];
   gain.gain.value = side === 'rival' ? 0.34 : 0.52;
   source.connect(gain);
-  gain.connect(context.destination);
+  gain.connect(commonAudioBus(context));
+  source.onended = () => { source.disconnect(); gain.disconnect(); };
   source.start();
 }
 
@@ -466,6 +872,7 @@ function expandAllEffects(board, initial, protectedKeys = new Set()) {
   let crownCount = 0;
   let cashCount = 0;
   let clockCount = 0;
+  let devilCount = 0;
 
   // Uma peça usada para criar seta/bomba/arco-íris continua ativando o poder aleatório
   // que ela já carregava antes de virar a nova especial.
@@ -507,16 +914,12 @@ function expandAllEffects(board, initial, protectedKeys = new Set()) {
       if (cell.power === 'crown') crownCount += 1;
       if (cell.power === 'cash') cashCount += 1;
       if (cell.power === 'clock') clockCount += 1;
-      if (cell.power === 'devil') {
-        const before = new Set(clearSet);
-        addColor(clearSet, board, matchType(cell));
-        enqueueNew(before);
-      }
+      if (cell.power === 'devil') devilCount += 1;
     }
   }
 
   protectedKeys.forEach((value) => clearSet.delete(value));
-  return { clearSet, triggered, powerTriggered, crownCount, cashCount, clockCount };
+  return { clearSet, triggered, powerTriggered, crownCount, cashCount, clockCount, devilCount };
 }
 
 function expandSpecialClear(board, initial, protectedKeys = new Set()) {
@@ -780,44 +1183,59 @@ function crownBoostFor(side) {
   return Math.max(0, Number(side === 'player' ? state.playerCrownBoost : state.rivalCrownBoost) || 0);
 }
 
+function crownLevelFor(side) {
+  if (!state) return 0;
+  return Math.max(0, Math.floor(Number(side === 'player' ? state.playerCrownLevel : state.rivalCrownLevel) || 0));
+}
+
 function crownMultiplierFor(side) {
-  if (!state) return 1;
-  const value = Number(side === 'player' ? state.playerCrownLevel : state.rivalCrownLevel) || 0;
-  return value >= 2 ? 4 : value >= 1 ? 2 : 1;
+  const level = crownLevelFor(side);
+  return level > 0 ? 2 ** level : 1;
+}
+
+function crownDurationForLevel(level) {
+  const safeLevel = Math.max(1, Math.floor(Number(level) || 1));
+  if (state?.format === 'turns') return CROWN_BASE_MOVES + safeLevel - 1;
+  return CROWN_BASE_SECONDS + (safeLevel - 1) * CROWN_STEP_SECONDS;
 }
 
 function setCrownBoostLevel(side, level) {
   if (!state) return;
-  const value = Math.max(0, Math.min(2, Number(level) || 0));
+  const value = Math.max(0, Math.floor(Number(level) || 0));
   if (side === 'player') state.playerCrownLevel = value;
   else state.rivalCrownLevel = value;
 }
 
-function setCrownBoost(side, seconds) {
+function setCrownBoost(side, amount) {
   if (!state) return;
-  const max = crownMultiplierFor(side) >= 4 ? CROWN_STACK_SECONDS : CROWN_BOOST_SECONDS;
-  const value = Math.max(0, Math.min(max, Number(seconds) || 0));
+  const level = crownLevelFor(side);
+  const max = level > 0 ? crownDurationForLevel(level) : 0;
+  const value = Math.max(0, Math.min(max, Number(amount) || 0));
   if (side === 'player') state.playerCrownBoost = value;
   else state.rivalCrownBoost = value;
   if (value <= 0.02) setCrownBoostLevel(side, 0);
 }
 
-function activateCrownBoost(side, count = 1) {
+function activateCrownBoost(side, count = 1, origin = null) {
   if (!state) return;
-  let remaining = Math.max(1, Number(count) || 1);
+  let remaining = Math.max(1, Math.floor(Number(count) || 1));
   while (remaining > 0) {
-    const currentMultiplier = crownMultiplierFor(side);
-    const currentSeconds = crownBoostFor(side);
-    if (currentMultiplier >= 2 && currentSeconds > 0.02) {
-      setCrownBoostLevel(side, 2);
-      if (currentSeconds < CROWN_STACK_SECONDS) setCrownBoost(side, CROWN_STACK_SECONDS);
-    } else {
-      setCrownBoostLevel(side, 1);
-      setCrownBoost(side, CROWN_BOOST_SECONDS);
-    }
+    const active = crownBoostFor(side) > 0.02 && crownLevelFor(side) > 0;
+    const nextLevel = active ? crownLevelFor(side) + 1 : 1;
+    setCrownBoostLevel(side, nextLevel);
+    setCrownBoost(side, crownDurationForLevel(nextLevel));
     remaining -= 1;
   }
+  queueHudReward(side, 'crown', Math.max(1, Math.floor(Number(count) || 1)), { origin });
+  recordPowerAudio('crown', side);
   renderCrownBoost(side);
+}
+
+function consumeCrownMove(side) {
+  if (!state || state.format !== 'turns') return;
+  const before = crownBoostFor(side);
+  if (before <= 0) return;
+  setCrownBoost(side, Math.max(0, before - 1));
 }
 
 function renderCrownBoost(side) {
@@ -826,52 +1244,51 @@ function renderCrownBoost(side) {
   const timeNode = $(side === 'player' ? 'playerCrownBoostTime' : 'rivalCrownBoostTime');
   const fill = $(side === 'player' ? 'playerCrownBoostFill' : 'rivalCrownBoostFill');
   if (!root || !timeNode || !fill) return;
-  const seconds = crownBoostFor(side);
-  root.hidden = seconds <= 0.02;
+  const level = Math.max(0, crownLevelFor(side) - heldHudAmount(side, 'crown'));
+  const remaining = crownBoostFor(side);
+  root.hidden = remaining <= 0.02 || level === 0;
   if (root.hidden) return;
-  const multiplier = crownMultiplierFor(side);
-  const max = multiplier >= 4 ? CROWN_STACK_SECONDS : CROWN_BOOST_SECONDS;
-  timeNode.textContent = `x${multiplier} · ${formatSeconds(seconds)}`;
-  fill.style.width = `${Math.max(0, Math.min(100, (seconds / max) * 100))}%`;
+  const multiplier = 2 ** level;
+  const max = crownDurationForLevel(level);
+  timeNode.textContent = state.format === 'turns'
+    ? `x${multiplier} · ${Math.ceil(remaining)} jog.`
+    : `x${multiplier} · ${formatSeconds(remaining)}`;
+  fill.style.transform = `scaleX(${Math.max(0, Math.min(1, remaining / Math.max(1, max)))})`;
 }
-
 
 function updateMoneyLeadDisplay(playerShown = scoreDisplay.player, rivalShown = scoreDisplay.rival) {
   if (!state) return;
   const node = $('moneyLead');
-  const rate = $('moneyRate');
-  if (!node) return;
-  if (rate) rate.textContent = `100 pts = ${formatMoney(pointValue() * 100)}`;
-  node.classList.remove('leader-player', 'leader-rival', 'leader-tie', 'solo-money');
-
-  if (state.opponentType === 'solo') {
-    node.classList.add('solo-money');
-    node.innerHTML = `<small>VALOR GERADO</small><strong>${formatMoney(totalMoneyFor('player', playerShown))}</strong>`;
-    return;
+  const totals = {};
+  for (const [side, score] of [['player', playerShown], ['rival', rivalShown]]) {
+    totals[side] = Math.max(0, totalMoneyFor(side, score) - heldHudAmount(side, 'cash'));
+    setHudText($(side + 'Money'), formatMoney(totals[side]));
   }
-
-  const playerMoney = totalMoneyFor('player', playerShown);
-  const rivalMoney = totalMoneyFor('rival', rivalShown);
-  const diff = Math.round((playerMoney - rivalMoney) * 100) / 100;
-  const value = Math.abs(diff);
-  if (diff === 0) {
-    node.classList.add('leader-tie');
-    node.innerHTML = `<small>EMPATE</small><strong>${formatMoney(0)}</strong>`;
-    return;
+  setHudText($('moneyRate'), '100 pts = ' + formatMoney(pointValue() * 100));
+  const solo = state.opponentType === 'solo';
+  const diff = Math.round((totals.player - totals.rival) * 100) / 100;
+  const leaderClass = solo ? 'solo-money' : diff > 0 ? 'leader-player' : diff < 0 ? 'leader-rival' : 'leader-tie';
+  if (node.dataset.leader !== leaderClass) {
+    node.classList.remove('solo-money', 'leader-player', 'leader-rival', 'leader-tie');
+    node.classList.add(leaderClass);
+    node.dataset.leader = leaderClass;
   }
-  const leader = diff > 0 ? sideName('player') : sideName('rival');
-  node.classList.add(diff > 0 ? 'leader-player' : 'leader-rival');
-  node.innerHTML = `<small>${leader.toUpperCase()} NA FRENTE</small><strong>+${formatMoney(value)}</strong>`;
+  const label = solo ? 'VALOR GERADO' : diff === 0 ? 'EMPATE' : sideName(diff > 0 ? 'player' : 'rival').toUpperCase() + ' NA FRENTE';
+  setHudText($('moneyLeadLabel'), label);
+  setHudText($('moneyLeadValue'), (solo || !diff ? '' : '+') + formatMoney(solo ? totals.player : Math.abs(diff)));
 }
 
-function renderScoreTag(side) {
-  const node = $(side === 'player' ? 'playerScoreTag' : 'rivalScoreTag');
-  if (!node) return;
-  const crown = crownBoostFor(side);
-  node.hidden = crown <= 0.02;
-  if (!node.hidden) node.textContent = `👑 x${crownMultiplierFor(side)} por ${formatSeconds(crown)}`;
+function renderFreezeStatus(side) {
+  const node = $(side + 'Freeze');
+  const remaining = state.format === 'turns' && state.currentSide !== side ? 0 : clockFreezeFor(side);
+  if (remaining > 0) {
+    setHudText(node, '⏸ CONGELADO · ' + formatSeconds(remaining));
+    node.classList.add('active');
+  } else if (node.classList.contains('active')) {
+    setHudText(node, '⏸ CONGELADO · 0,0s');
+    node.classList.remove('active');
+  }
 }
-
 
 function animateScoreHud(side, target) {
   const node = $(side === 'player' ? 'playerScore' : 'rivalScore');
@@ -889,10 +1306,7 @@ function animateScoreHud(side, target) {
   const delta = safeTarget - start;
   scoreTarget[side] = safeTarget;
   const started = performance.now();
-  const duration = Math.min(900, Math.max(380, 430 + Math.abs(delta) * 0.7));
-  node.classList.remove('score-bump');
-  void node.offsetWidth;
-  if (delta > 0) node.classList.add('score-bump');
+  const duration = matchMedia('(prefers-reduced-motion: reduce)').matches ? 1 : 420;
 
   const step = (now) => {
     const t = Math.min(1, (now - started) / duration);
@@ -913,6 +1327,7 @@ function animateScoreHud(side, target) {
 }
 
 function resetScoreHud(player = 0, rival = 0) {
+  resetHudRewards();
   for (const side of ['player', 'rival']) {
     if (scoreAnimationFrame[side]) cancelAnimationFrame(scoreAnimationFrame[side]);
     scoreAnimationFrame[side] = null;
@@ -922,53 +1337,16 @@ function resetScoreHud(player = 0, rival = 0) {
   updateMoneyLeadDisplay();
 }
 
-function showScoreFloat(side, points) {
-  if (!points) return;
-  const node = $(side === 'player' ? 'playerScoreFloat' : 'rivalScoreFloat');
-  if (!node) return;
-  node.textContent = `+${Math.round(points).toLocaleString('pt-BR')}`;
-  node.classList.remove('show');
-  void node.offsetWidth;
-  node.classList.add('show');
-}
-
-function pulseTarget(node) {
-  if (!node) return;
-  node.classList.remove('target-pulse');
-  void node.offsetWidth;
-  node.classList.add('target-pulse');
-}
-
-function flyRewardToTarget(side, text, targetId, kind = '') {
-  const layer = $('flightLayer');
-  const target = $(targetId);
-  const board = boardRoot(side);
-  if (!layer || !target || !board || !text) return;
-  const originRect = board.getBoundingClientRect();
-  const targetRect = target.getBoundingClientRect();
-  const token = document.createElement('div');
-  token.className = `fly-token ${kind}`.trim();
-  token.textContent = text;
-  const startX = originRect.left + originRect.width / 2;
-  const startY = originRect.top + originRect.height * 0.28;
-  layer.appendChild(token);
-  token.style.left = `${startX}px`;
-  token.style.top = `${startY}px`;
-  const dx = (targetRect.left + targetRect.width / 2) - startX;
-  const dy = (targetRect.top + targetRect.height / 2) - startY;
-  const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
-  const done = () => { pulseTarget(target); token.remove(); };
-  if (reduced || !token.animate) {
-    setTimeout(done, 520);
-    return;
-  }
-  token.animate([
-    { transform: 'translate(-50%, -50%) scale(.72)', opacity: 0, offset: 0 },
-    { transform: 'translate(-50%, -50%) scale(1.12)', opacity: 1, offset: .12 },
-    { transform: 'translate(-50%, -50%) scale(1)', opacity: 1, offset: .46 },
-    { transform: 'translate(-50%, -50%) scale(1)', opacity: 1, offset: .58 },
-    { transform: `translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px)) scale(.72)`, opacity: .16, offset: 1 },
-  ], { duration: 1750, easing: 'cubic-bezier(.2,.75,.2,1)', fill: 'forwards' }).finished.then(done).catch(done);
+function showDevilAttack(side, penaltySeconds, appliedSeconds = penaltySeconds, origin = null, wait = 0) {
+  if (!state || !penaltySeconds || state.opponentType === 'solo') return;
+  const target = otherSide(side);
+  const turns = state.format === 'turns';
+  queueHudReward(target, turns ? 'penalty' : 'time', turns ? appliedSeconds : -appliedSeconds, {
+    sourceSide: side, origin, wait, stack: 3,
+    label: appliedSeconds > 0
+      ? '😈 −' + Number(appliedSeconds.toFixed(1)).toLocaleString('pt-BR') + 's' + (turns ? ' PRÓX.' : '')
+      : turns ? '😈 LIMITE' : '😈 SEM TEMPO',
+  });
 }
 
 function renderTimeBars() {
@@ -977,73 +1355,70 @@ function renderTimeBars() {
   [['player', 'playerTimeBar', 'playerTimeFill'], ['rival', 'rivalTimeBar', 'rivalTimeFill']].forEach(([side, barId, fillId]) => {
     const bar = $(barId); const fill = $(fillId);
     if (!bar || !fill) return;
-    const visible = race && (side === 'player' || state.opponentType !== 'solo');
-    bar.hidden = !visible;
+
+    if (race) {
+      const visible = side === 'player' || state.opponentType !== 'solo';
+      bar.hidden = !visible;
+      bar.style.visibility = '';
+      if (!visible) return;
+      const base = Math.max(1, Number(state.duration) || 60);
+      const current = shownHudTime(side);
+      const basePct = Math.max(0, Math.min(100, (current / base) * 100));
+      const overflowPct = Math.max(0, Math.min(55, ((current - base) / base) * 100));
+      fill.style.transform = `scaleX(${basePct / 100})`;
+      bar.style.setProperty('--overflow-width', `${overflowPct}%`);
+      bar.classList.toggle('has-overflow', overflowPct > 0.05);
+      return;
+    }
+
+    const visible = state.currentSide === side && (side === 'player' || state.opponentType !== 'solo');
+    bar.hidden = false;
+    bar.style.visibility = visible ? 'visible' : 'hidden';
+    bar.classList.remove('has-overflow');
+    bar.style.setProperty('--overflow-width', '0%');
     if (!visible) return;
-    const base = Math.max(1, Number(state.duration) || 60);
-    const current = Math.max(0, timeFor(side));
-    const basePct = Math.max(0, Math.min(100, (current / base) * 100));
-    const overflowPct = Math.max(0, Math.min(55, ((current - base) / base) * 100));
-    fill.style.width = `${basePct}%`;
-    bar.style.setProperty('--overflow-width', `${overflowPct}%`);
-    bar.classList.toggle('has-overflow', overflowPct > 0.05);
+    const current = shownTurnTime(side);
+    fill.style.transform = `scaleX(${Math.max(0, Math.min(1, current / TURN_SECONDS))})`;
   });
 }
 
-function updateLastEvent(side, { title = '', points = 0, seconds = 0, money = 0, boosted = false } = {}) {
-  const node = $(side === 'player' ? 'playerLastEvent' : 'rivalLastEvent');
-  if (!node) return;
-  const parts = [];
-  if (title) parts.push(title);
-  if (seconds) parts.push(`+${String(seconds).replace('.', ',')}s`);
-  if (money) parts.push(`+${formatMoney(money)}`);
-  if (boosted) parts.push('👑 boost ativo');
-  node.textContent = parts.join(' · ') || 'Combinação concluída.';
-  node.classList.remove('pulse');
-  void node.offsetWidth;
-  node.classList.add('pulse');
+function showPlayFeedback(side, { points = 0, seconds = 0, moves = 0, money = 0, holds = {}, origin = null } = {}) {
+  let wait = 0;
+  for (const [kind, amount] of [['score', points], ['time', seconds], ['moves', moves], ['cash', money]]) {
+    if (!amount) continue;
+    queueHudReward(side, kind, amount, { hold: holds[kind], wait, origin, stack: wait / HUD_REWARD.stagger });
+    wait += HUD_REWARD.stagger;
+  }
 }
 
-function showPlayFeedback(side, { title = '', points = 0, seconds = 0, money = 0, boosted = false } = {}) {
-  const node = $(side === 'player' ? 'playerFeedback' : 'rivalFeedback');
-  if (!node) return;
-  if (points) showScoreFloat(side, points);
-  if (seconds) flyRewardToTarget(side, `+${String(seconds).replace('.', ',')}s`, side === 'player' ? 'playerClock' : 'rivalClock', 'time');
-  if (money) flyRewardToTarget(side, `+${formatMoney(money)}`, 'moneyLead', 'money');
-  if (boosted) flyRewardToTarget(side, `👑 x${crownMultiplierFor(side)}`, side === 'player' ? 'playerCrownBoostTime' : 'rivalCrownBoostTime', 'boost');
-
-  const chips = [];
-  if (seconds) chips.push(`<b>⏳ +${String(seconds).replace('.', ',')}s</b>`);
-  if (money) chips.push(`<u>💸 +${formatMoney(money)}</u>`);
-  if (boosted) chips.push(`<i>👑 x${crownMultiplierFor(side)}</i>`);
-  if (!chips.length) {
-    node.classList.remove('show');
-    node.innerHTML = '';
-  } else {
-    node.innerHTML = `${title ? `<em>${title}</em>` : ''}${chips.join('')}`;
-    node.classList.remove('show');
-    void node.offsetWidth;
-    node.classList.add('show');
+function collectCascadeFeedback(side, rewards, points, money, origin = null) {
+  rewards.origin ??= origin;
+  for (const [kind, amount] of [['score', points], ['cash', money]]) {
+    if (!amount) continue;
+    if (rewards.holds[kind]) rewards.holds[kind].amount += amount;
+    else rewards.holds[kind] = holdHudChange(side, kind, amount);
   }
-  updateLastEvent(side, { title, points, seconds, money, boosted });
+  rewards.points += points;
+  rewards.money += money;
 }
 
 function canHumanInteract(side) {
   if (!state || state.finished || busy[side]) return false;
   if (side === 'rival') return false;
   if (state.format === 'race') return timeFor(side) > 0;
-  return state.currentSide === side && state.movesLeft > 0;
+  return state.currentSide === side && state.movesLeft > 0 && state.turnTimeLeft > 0 && !state.turnEnding;
 }
 
 function renderHud() {
   if (!state) return;
-  animateScoreHud('player', state.playerScore);
-  animateScoreHud('rival', state.rivalScore);
+  animateScoreHud('player', state.playerScore - heldHudAmount('player', 'score'));
+  animateScoreHud('rival', state.rivalScore - heldHudAmount('rival', 'score'));
   updateMoneyLeadDisplay();
   renderCrownBoost('player');
   renderCrownBoost('rival');
-  renderScoreTag('player');
-  renderScoreTag('rival');
+  renderFreezeStatus('player');
+  renderFreezeStatus('rival');
+  $('gameScreen').classList.toggle('solo-game', state.opponentType === 'solo');
   renderTimeBars();
 
   const hasRival = state.opponentType !== 'solo';
@@ -1054,24 +1429,34 @@ function renderHud() {
   $('playerBoardTitle').textContent = sideName('player').toUpperCase();
   $('rivalNameHud').textContent = sideName('rival').toUpperCase();
   $('rivalBoardTitle').textContent = sideName('rival').toUpperCase();
-  $('rivalBoard').classList.toggle('bot-controlled', state.opponentType === 'bot' || state.opponentType === 'online');
+  $('rivalBoard').classList.toggle('bot-controlled', state.opponentType === 'bot');
 
   if (state.format === 'race') {
     $('centerLabel').textContent = state.opponentType === 'solo' ? 'PARTIDA RÁPIDA' : 'CORRIDA';
     $('centerValue').textContent = state.opponentType === 'solo' ? 'TEMPO' : 'AO VIVO';
     $('centerSub').textContent = state.opponentType === 'solo' ? 'faça a maior pontuação' : 'cada um tem seu relógio';
     $('playerClock').hidden = false;
-    $('playerClock').textContent = formatSeconds(state.playerTime);
+    $('playerClock').textContent = formatSeconds(shownHudTime('player'));
     $('rivalClock').hidden = !hasRival;
-    $('rivalClock').textContent = formatSeconds(state.rivalTime);
+    $('rivalClock').textContent = formatSeconds(shownHudTime('rival'));
   } else {
+    const activeSide = state.currentSide;
+    const turnTime = shownTurnTime(activeSide);
     $('centerLabel').textContent = `RODADA ${Math.min(state.currentRound, state.rounds)}/${state.rounds}`;
-    $('centerValue').textContent = state.currentSide === 'player' ? 'VOCÊ' : sideName('rival').toUpperCase();
-    $('centerSub').textContent = `${state.movesLeft} mov. restantes`;
+    $('centerValue').textContent = activeSide === 'player' ? 'VOCÊ' : sideName('rival').toUpperCase();
+    $('centerSub').textContent = '90s por turno';
     $('playerClock').hidden = false;
     $('rivalClock').hidden = !hasRival;
-    $('playerClock').textContent = state.currentSide === 'player' ? `${state.movesLeft} mov.` : 'aguardando';
-    $('rivalClock').textContent = state.currentSide === 'rival' ? `${state.movesLeft} mov.` : 'aguardando';
+    $('playerClock').textContent = activeSide === 'player' ? formatSeconds(turnTime) : formatSeconds(TURN_SECONDS - turnPenaltyFor('player') + heldHudAmount('player', 'penalty'));
+    $('rivalClock').textContent = activeSide === 'rival' ? formatSeconds(turnTime) : formatSeconds(TURN_SECONDS - turnPenaltyFor('rival') + heldHudAmount('rival', 'penalty'));
+  }
+
+  for (const side of ['player', 'rival']) {
+    const turns = state.format === 'turns';
+    const active = state.currentSide === side;
+    $(side + 'MovesMetric').hidden = !turns;
+    setHudText($(side + 'Moves'), active ? `${Math.max(0, state.movesLeft - heldHudAmount(side, 'moves'))} MOV.` : '— MOV.');
+    setHudText($(side + 'ClockLabel'), turns && !active ? 'PRÓX. TURNO' : 'TEMPO');
   }
 
   updatePanelStates();
@@ -1101,10 +1486,12 @@ function updatePanelStates() {
       }
     }
   } else {
-    $('playerMoveState').textContent = state.currentSide === 'player' ? (busy.player ? 'Jogando…' : `${state.movesLeft} movimentos`) : 'Aguardando';
+    $('playerMoveState').textContent = state.currentSide === 'player'
+      ? (busy.player ? 'Jogando…' : 'Sua vez')
+      : 'Aguardando';
     $('playerMoveState').className = `move-state${state.currentSide === 'player' ? busy.player ? ' playing' : '' : ' waiting'}`;
     if (state.opponentType === 'online') {
-      $('rivalMoveState').textContent = state.currentSide === 'rival' ? `${state.movesLeft} movimentos` : 'Aguardando';
+      $('rivalMoveState').textContent = state.currentSide === 'rival' ? 'Jogando' : 'Aguardando';
       $('rivalMoveState').className = `move-state${state.currentSide === 'rival' ? ' playing' : ' waiting'}`;
     } else if (state.opponentType === 'bot') {
       if (!busy.rival) {
@@ -1120,7 +1507,8 @@ function renderBoard(side) {
   const root = boardRoot(side);
   const data = boardData(side);
   if (!root || !data) return;
-  root.innerHTML = '';
+
+  const fragment = document.createDocumentFragment();
   data.forEach((row, r) => row.forEach((cell, c) => {
     const button = document.createElement('button');
     button.type = 'button';
@@ -1141,11 +1529,15 @@ function renderBoard(side) {
     if (cell.special) button.classList.add(`special-${cell.special}`);
     if (cell.power) button.classList.add('random-power', `power-${cell.power}`);
 
-    // A cor/forma base nunca some: ela diz com qual família a peça combina.
-    // Poderes e especiais são desenhados DENTRO da própria peça, como uma camada visual.
     const face = document.createElement('span');
     face.className = 'gem-face';
-    face.textContent = cell.special === 'prism' ? '🌈' : gemMeta.icon;
+    if (cell.special === 'prism') {
+      face.classList.add('prism-gem');
+      face.textContent = '◆';
+      face.setAttribute('aria-hidden', 'true');
+    } else {
+      face.textContent = gemMeta.icon;
+    }
     button.append(face);
 
     if (cell.power) {
@@ -1165,8 +1557,10 @@ function renderBoard(side) {
     }
 
     if (cell.power && cell.special && cell.special !== 'prism') button.classList.add('stacked-marks');
-    root.append(button);
+    fragment.append(button);
   }));
+
+  root.replaceChildren(fragment);
 }
 
 function renderAllBoards() {
@@ -1220,13 +1614,16 @@ async function animateFalls(side, movement) {
     if (!el?.animate) return;
     const deltaRows = info.fromR - info.toR;
     const distance = deltaRows * pitch;
-    const duration = Math.min(700, 330 + Math.abs(deltaRows) * 48);
+    const rows = Math.max(1, Math.abs(deltaRows));
+    const duration = Math.min(820, 390 + rows * 58);
+    const stagger = info.isNew ? Math.min(110, Math.max(0, (-info.fromR - 1) * 22)) : 0;
     animations.push(el.animate(
       [
-        { transform: `translateY(${distance}px)`, opacity: info.isNew ? .08 : 1 },
-        { transform: 'translateY(0)', opacity: 1 },
+        { transform: `translateY(${distance}px) scale(.98)`, opacity: info.isNew ? .12 : 1, offset: 0 },
+        { transform: 'translateY(3px) scale(1)', opacity: 1, offset: .88 },
+        { transform: 'translateY(0) scale(1)', opacity: 1, offset: 1 },
       ],
-      { duration, easing: 'cubic-bezier(.18,.78,.22,1)', fill: 'both' },
+      { duration, delay: stagger, easing: 'cubic-bezier(.16,.76,.24,1)', fill: 'both' },
     ).finished);
   });
   await Promise.allSettled(animations);
@@ -1269,13 +1666,15 @@ async function showLineEffects(side, effects) {
       blast.style.transformOrigin = `50% ${((effect.r + .5) / SIZE) * 100}%`;
     }
     root.appendChild(blast);
+    const botLite = side === 'rival' && state?.opponentType === 'bot';
     if (!reduced && blast.animate) {
+      const peakOpacity = botLite ? .34 : 1;
       const frames = effect.special === 'row'
-        ? [{ transform: 'scaleX(.08)', opacity: 0 }, { transform: 'scaleX(1)', opacity: 1, offset: .25 }, { transform: 'scaleX(1)', opacity: 0 }]
-        : [{ transform: 'scaleY(.08)', opacity: 0 }, { transform: 'scaleY(1)', opacity: 1, offset: .25 }, { transform: 'scaleY(1)', opacity: 0 }];
-      waits.push(blast.animate(frames, { duration: 360, easing: 'cubic-bezier(.2,.8,.2,1)', fill: 'forwards' }).finished.finally(() => blast.remove()));
+        ? [{ transform: 'scaleX(.08)', opacity: 0 }, { transform: 'scaleX(1)', opacity: peakOpacity, offset: .25 }, { transform: 'scaleX(1)', opacity: 0 }]
+        : [{ transform: 'scaleY(.08)', opacity: 0 }, { transform: 'scaleY(1)', opacity: peakOpacity, offset: .25 }, { transform: 'scaleY(1)', opacity: 0 }];
+      waits.push(blast.animate(frames, { duration: botLite ? 220 : 360, easing: 'cubic-bezier(.2,.8,.2,1)', fill: 'forwards' }).finished.finally(() => blast.remove()));
     } else {
-      waits.push(delay(300).then(() => blast.remove()));
+      waits.push(delay(botLite ? 160 : 300).then(() => blast.remove()));
     }
   });
   await Promise.allSettled(waits);
@@ -1286,6 +1685,7 @@ async function previewSpecialCreations(side, creations) {
   const root = boardRoot(side);
   if (!root) return;
   const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const rivalLite = side === 'rival' && state?.opponentType === 'bot';
   const animations = [];
 
   creations.forEach((creation) => {
@@ -1302,30 +1702,39 @@ async function previewSpecialCreations(side, creations) {
         return;
       }
       sourceEl.classList.add('merge-source');
+      if (rivalLite) return;
       if (!reduced && sourceEl.animate && targetRect) {
         const rect = sourceEl.getBoundingClientRect();
         const dx = (targetRect.left + targetRect.width / 2) - (rect.left + rect.width / 2);
         const dy = (targetRect.top + targetRect.height / 2) - (rect.top + rect.height / 2);
         animations.push(sourceEl.animate([
-          { transform: 'translate(0,0) scale(1)', opacity: 1, filter: 'brightness(1)' },
-          { transform: `translate(${dx * .65}px, ${dy * .65}px) scale(.72)`, opacity: .9, filter: 'brightness(1.35)' },
-          { transform: `translate(${dx}px, ${dy}px) scale(.35)`, opacity: 0, filter: 'brightness(2)' },
-        ], { duration: 320, easing: 'cubic-bezier(.2,.8,.2,1)', fill: 'forwards' }).finished);
+          { transform: 'translate(0,0) scale(1)', opacity: 1 },
+          { transform: `translate(${dx * .62}px, ${dy * .62}px) scale(.78)`, opacity: .86 },
+          { transform: `translate(${dx}px, ${dy}px) scale(.38)`, opacity: 0 },
+        ], { duration: 390, easing: 'cubic-bezier(.2,.78,.2,1)', fill: 'forwards' }).finished);
       }
     });
   });
 
-  if (animations.length) await Promise.allSettled(animations);
+  if (rivalLite) await delay(110);
+  else if (animations.length) await Promise.allSettled(animations);
   else await delay(300);
 }
 
 async function showClear(side, clearSet, triggered = new Set()) {
   const root = boardRoot(side);
+  const cells = [];
   for (const value of clearSet) {
     const { r, c } = parseKey(value);
     const el = root?.querySelector(`.gem[data-r="${r}"][data-c="${c}"]`);
     if (!el) continue;
-    el.classList.add(triggered.has(value) ? 'special-activated' : 'matched');
+    cells.push({ el, triggered: triggered.has(value) });
+    el.classList.add('match-primed');
+  }
+  if (cells.length) await delay(ANIM.matchPrime);
+  for (const { el, triggered: isTriggered } of cells) {
+    el.classList.remove('match-primed');
+    el.classList.add(isTriggered ? 'special-activated' : 'matched');
   }
   await delay(ANIM.match);
 }
@@ -1338,40 +1747,143 @@ async function pulseCreatedSpecials(side, ids) {
     if (!el) return null;
     el.classList.add('special-created');
     if (!el.animate || matchMedia('(prefers-reduced-motion: reduce)').matches) return delay(1);
-    return delay(460);
+    return delay(ANIM.specialBorn);
   }).filter(Boolean);
   await Promise.allSettled(promises);
 }
 
-function timeBonusFromCreation(creations, cascade, triggeredCount) {
+function timeBonusFromCreation(creations, cascade) {
   let bonus = 0;
   for (const creation of creations) {
-    if (creation.special === 'row' || creation.special === 'col') bonus += 1;
-    else if (creation.special === 'bomb' || creation.special === 'prism') bonus += 2;
+    if (creation.special === 'row' || creation.special === 'col') bonus += 4;
+    else if (creation.special === 'bomb') bonus += 6;
+    else if (creation.special === 'prism') bonus += 5;
   }
-  if (cascade > 1) bonus += 1;
-  if (triggeredCount > 0) bonus += Math.min(2, triggeredCount);
-  return Math.min(4, bonus);
+  if (cascade === 2) bonus += 1;
+  else if (cascade >= 3) bonus += 2;
+  return bonus;
 }
 
-function flashTimeBonus(side, seconds) {
-  if (!seconds || !state || state.format !== 'race') return;
-  const node = $(side === 'player' ? 'playerTimeBonus' : 'rivalTimeBonus');
-  if (!node) return;
-  node.textContent = `+${seconds}s`;
-  node.classList.remove('show');
-  void node.offsetWidth;
-  node.classList.add('show');
+function turnMovesFromCreation(creations) {
+  return creations.filter((creation) => ['row', 'col', 'bomb', 'prism'].includes(creation.special)).length;
 }
+
+
 
 function awardTime(side, seconds) {
   if (!state || state.format !== 'race' || seconds <= 0) return;
-  const maxTime = state.duration + 30;
-  const before = timeFor(side);
-  const after = Math.min(maxTime, before + seconds);
-  const awarded = Math.max(0, Math.round((after - before) * 10) / 10);
-  if (awarded <= 0) return;
-  setTime(side, after);
+  setTime(side, timeFor(side) + seconds);
+}
+
+function clockFreezeFor(side) {
+  if (!state) return 0;
+  return Math.max(0, Number(side === 'player' ? state.playerClockFreeze : state.rivalClockFreeze) || 0);
+}
+
+function setClockFreeze(side, seconds) {
+  if (!state) return;
+  const value = Math.max(0, Number(seconds) || 0);
+  if (side === 'player') state.playerClockFreeze = value;
+  else state.rivalClockFreeze = value;
+}
+
+function addClockFreeze(side, count = 1) {
+  if (!state || count <= 0) return;
+  setClockFreeze(side, clockFreezeFor(side) + Math.max(0, Number(count) || 0) * CLOCK_FREEZE_SECONDS);
+  recordPowerAudio('clock', side);
+}
+
+function consumeClockFreeze(side, dt) {
+  const before = clockFreezeFor(side);
+  if (before <= 0 || dt <= 0) return dt;
+  const frozen = Math.min(before, dt);
+  setClockFreeze(side, before - frozen);
+  return Math.max(0, dt - frozen);
+}
+
+function turnPenaltyFor(side) {
+  if (!state) return 0;
+  return Math.max(0, Number(side === 'player' ? state.playerTurnPenalty : state.rivalTurnPenalty) || 0);
+}
+
+function setTurnPenalty(side, seconds) {
+  if (!state) return;
+  const maxPenalty = TURN_SECONDS - MIN_TURN_SECONDS;
+  const value = Math.max(0, Math.min(maxPenalty, Number(seconds) || 0));
+  if (side === 'player') state.playerTurnPenalty = value;
+  else state.rivalTurnPenalty = value;
+}
+
+function resetTurnClock(side) {
+  if (!state || state.format !== 'turns') return;
+  const penalty = turnPenaltyFor(side);
+  for (const hold of hudHolds) {
+    if (hold.match === state && hold.side === side && hold.kind === 'penalty') {
+      hold.appliedToTurn = true;
+      hold.round = state.currentRound;
+    }
+  }
+  state.turnTimeLeft = Math.max(MIN_TURN_SECONDS, TURN_SECONDS - penalty);
+  setTurnPenalty(side, 0);
+  setClockFreeze(side, 0);
+  state.lastTickAt = performance.now();
+}
+
+function publishOnlineRaceDevilPenalty(targetTime) {
+  if (!state || state.opponentType !== 'online' || !Number.isInteger(onlineSeat)) return;
+  const ref = onlineRoomRef();
+  if (!ref) return;
+  const targetSeat = 1 - onlineSeat;
+  void fbUpdateDoc(ref, {
+    [`match.players.${targetSeat}.time`]: Math.max(0, Number(targetTime) || 0),
+    [`match.players.${onlineSeat}.powerAudioEvents`]: { ...state.powerAudioEvents },
+    updatedAt: Date.now(),
+  }).catch((error) => console.error('[Online] Falha ao publicar Diabinho:', error));
+}
+
+function applyDevilEffect(side, count = 0) {
+  if (!state || count <= 0 || state.opponentType === 'solo') return 0;
+  const target = otherSide(side);
+  if (state.format === 'race') {
+    const penalty = Math.max(0, Number(count) || 0) * DEVIL_RACE_PENALTY_SECONDS;
+    const before = timeFor(target);
+    setTime(target, Math.max(0, timeFor(target) - penalty));
+    if (timeFor(target) < before) recordPowerAudio('devil', side);
+    if (state.opponentType === 'online' && side === 'player') publishOnlineRaceDevilPenalty(timeFor(target));
+    return penalty;
+  }
+  const penalty = Math.max(0, Number(count) || 0) * DEVIL_TURN_PENALTY_SECONDS;
+  const before = turnPenaltyFor(target);
+  setTurnPenalty(target, turnPenaltyFor(target) + penalty);
+  if (turnPenaltyFor(target) > before) recordPowerAudio('devil', side);
+  return penalty;
+}
+
+function createCascadeRewards() {
+  return { seconds: 0, moves: 0, clockCount: 0, devilCount: 0, points: 0, money: 0, holds: {} };
+}
+
+function finalizeCascadeRewards(side, rewards) {
+  if (!state || !rewards) return;
+  // Apply gameplay immediately, exactly as before; only the HUD waits for reading.
+  if (state.format === 'race' && rewards.seconds > 0) awardTime(side, rewards.seconds);
+  if (state.format === 'turns' && rewards.moves > 0) {
+    state.movesLeft += rewards.moves;
+    recordPowerAudio('moves', side);
+  }
+  if (rewards.clockCount > 0) addClockFreeze(side, rewards.clockCount);
+  const target = otherSide(side);
+  const before = state.format === 'race' ? timeFor(target) : turnPenaltyFor(target);
+  const devilPenalty = applyDevilEffect(side, rewards.devilCount);
+  const after = state.format === 'race' ? timeFor(target) : turnPenaltyFor(target);
+  if (devilPenalty > 0) showDevilAttack(side, devilPenalty, Math.abs(after - before), rewards.origin, HUD_REWARD.stagger * 3);
+  showPlayFeedback(side, {
+    points: rewards.points, money: rewards.money, holds: rewards.holds, origin: rewards.origin,
+    seconds: state.format === 'race' ? rewards.seconds : 0,
+    moves: state.format === 'turns' ? rewards.moves : 0,
+  });
+  if (side === 'player') $('comboLabel').textContent = 'Arraste uma joia para combinar.';
+  renderHud();
 }
 
 function clearBoardCells(board, clearSet) {
@@ -1381,10 +1893,12 @@ function clearBoardCells(board, clearSet) {
   }
 }
 
-async function resolveMatches(side, preferred = []) {
+async function resolveMatches(side, preferred = [], sharedRewards = null) {
   const board = boardData(side);
   let cascade = 1;
   let total = 0;
+  const rewards = sharedRewards || createCascadeRewards();
+  const ownsRewards = !sharedRewards;
 
   while (state && !state.finished) {
     const result = findMatches(board);
@@ -1395,40 +1909,29 @@ async function resolveMatches(side, preferred = []) {
     const clearSet = expanded.clearSet;
     const extraClears = Math.max(0, clearSet.size - Math.max(0, result.matched.size - protectedKeys.size));
     const rawGained = scoreGroups(result.groups, cascade) + extraClears * 12 + creations.length * 40;
-    if (expanded.crownCount) activateCrownBoost(side, expanded.crownCount);
+    const origin = rewardOrigin(cascade === 1 && preferred.length ? preferred : result.matched);
+
+    if (expanded.crownCount) activateCrownBoost(side, expanded.crownCount, origin);
     const crownMultiplier = crownMultiplierFor(side);
     const gained = Math.round(rawGained * crownMultiplier);
     total += gained;
     setScore(side, scoreFor(side) + gained);
+
     const moneyBonus = Math.round((expanded.cashCount || 0) * DIRECT_CASH_BONUS * 100) / 100;
     if (moneyBonus) addBonusMoney(side, moneyBonus);
 
-    let bonusSeconds = state.format === 'race' ? timeBonusFromCreation(creations, cascade, expanded.triggered.size) : 0;
-    if (state.format === 'race' && expanded.clockCount) bonusSeconds += expanded.clockCount * CLOCK_BONUS_SECONDS;
-    awardTime(side, bonusSeconds);
+    if (state.format === 'race') rewards.seconds += timeBonusFromCreation(creations, cascade);
+    else rewards.moves += turnMovesFromCreation(creations);
+    rewards.clockCount += expanded.clockCount || 0;
+    rewards.devilCount += expanded.devilCount || 0;
 
-    const usedDevil = [...expanded.powerTriggered].some((value) => {
-      const pos = parseKey(value);
-      return board[pos.r]?.[pos.c]?.power === 'devil';
-    });
     const usedBomb = [...expanded.triggered].some((value) => {
       const pos = parseKey(value);
       return board[pos.r]?.[pos.c]?.special === 'bomb';
     });
-    const feedbackTags = [];
-    if (cascade > 1) feedbackTags.push(`🔥 Cascata x${cascade}`);
-    if (expanded.crownCount) feedbackTags.push(`👑 Coroa: x${crownMultiplier} por ${crownMultiplier >= 4 ? CROWN_STACK_SECONDS : CROWN_BOOST_SECONDS}s`);
-    else if (crownMultiplier > 1) feedbackTags.push(`👑 x${crownMultiplier}`);
-    if (usedDevil) feedbackTags.push('😈 Diabinho');
-    if (moneyBonus) feedbackTags.push(`💸 +${formatMoney(moneyBonus)}`);
-    if (expanded.clockCount) feedbackTags.push(`⏳ +${expanded.clockCount * CLOCK_BONUS_SECONDS}s`);
-    if (usedBomb) feedbackTags.push('💥 Bomba');
-    else if (creations.some((c) => c.special === 'bomb')) feedbackTags.push('💣 Bomba criada');
-    if (creations.some((c) => c.special === 'prism')) feedbackTags.push('🌈 Arco-íris');
-    if (creations.some((c) => c.special === 'row' || c.special === 'col')) feedbackTags.push('↔ Seta criada');
-    const specialText = feedbackTags.length ? feedbackTags.join(' · ') : 'COMBINAÇÃO';
-    if (side === 'player') $('comboLabel').textContent = specialText || 'Combinação concluída.';
-    showPlayFeedback(side, { title: specialText, points: gained, seconds: bonusSeconds, money: moneyBonus, boosted: expanded.crownCount > 0 });
+
+    if (side === 'player') $('comboLabel').textContent = cascade > 1 ? `Resolvendo cascata ×${cascade}…` : 'Resolvendo combinação…';
+    collectCascadeFeedback(side, rewards, gained, moneyBonus, origin);
     const stateNode = $(side === 'player' ? 'playerMoveState' : 'rivalMoveState');
     if (stateNode) stateNode.textContent = cascade > 1 ? `Cascata x${cascade}` : `+${gained}`;
     renderHud();
@@ -1455,9 +1958,10 @@ async function resolveMatches(side, preferred = []) {
     await animateFalls(side, movement);
     await pulseCreatedSpecials(side, createdIds);
     await delay(ANIM.cascadePause);
-    cascade++;
+    cascade += 1;
   }
 
+  if (ownsRewards) finalizeCascadeRewards(side, rewards);
   await ensurePlayableForSide(side);
   return total;
 }
@@ -1465,28 +1969,39 @@ async function resolveMatches(side, preferred = []) {
 async function resolveDirectSpecialSwap(side, a, b) {
   const board = boardData(side);
   const plan = buildDirectSpecialPlan(board, a, b);
+  const rewards = createCascadeRewards();
   const rawGained = Math.round(90 + plan.clearSet.size * 14 + plan.triggered.size * 35);
-  if (plan.crownCount) activateCrownBoost(side, plan.crownCount);
+  const origin = rewardOrigin([a, b]);
+
+  if (plan.crownCount) activateCrownBoost(side, plan.crownCount, origin);
   const crownMultiplier = crownMultiplierFor(side);
   const gained = rawGained * crownMultiplier;
-  if (plan.crownCount) plan.label = `👑 Coroa: x${crownMultiplier} por ${crownMultiplier >= 4 ? CROWN_STACK_SECONDS : CROWN_BOOST_SECONDS}s`;
+  if (plan.crownCount) {
+    const unit = state.format === 'turns'
+      ? `${Math.ceil(crownBoostFor(side))} jog.`
+      : formatSeconds(crownBoostFor(side));
+    plan.label = `👑 Coroa: x${crownMultiplier} por ${unit}`;
+  }
   setScore(side, scoreFor(side) + gained);
+
   const moneyBonus = Math.round((plan.cashCount || 0) * DIRECT_CASH_BONUS * 100) / 100;
   if (moneyBonus) addBonusMoney(side, moneyBonus);
-  let bonusSeconds = state.format === 'race' ? plan.timeBonus : 0;
-  if (state.format === 'race' && plan.clockCount) bonusSeconds += plan.clockCount * CLOCK_BONUS_SECONDS;
-  awardTime(side, bonusSeconds);
+  rewards.clockCount += plan.clockCount || 0;
+  rewards.devilCount += plan.devilCount || 0;
+
   if (side === 'player') $('comboLabel').textContent = plan.label;
-  showPlayFeedback(side, { title: plan.label, points: gained, seconds: bonusSeconds, money: moneyBonus, boosted: plan.crownCount > 0 });
+  collectCascadeFeedback(side, rewards, gained, moneyBonus, origin);
   const stateNode = $(side === 'player' ? 'playerMoveState' : 'rivalMoveState');
   if (stateNode) stateNode.textContent = plan.label;
   renderHud();
   void playMatchSound(side, 2);
+
   const usedBomb = [...plan.triggered].some((value) => {
     const pos = parseKey(value);
     return board[pos.r]?.[pos.c]?.special === 'bomb';
   });
   if (usedBomb) void playBombSound(side);
+
   await showLineEffects(side, triggeredLineEffects(board, plan.triggered));
   await showClear(side, plan.clearSet, plan.triggered);
   clearBoardCells(board, plan.clearSet);
@@ -1494,13 +2009,15 @@ async function resolveDirectSpecialSwap(side, a, b) {
   renderBoard(side);
   await animateFalls(side, movement);
   await delay(ANIM.cascadePause);
-  await resolveMatches(side);
+  await resolveMatches(side, [], rewards);
+  finalizeCascadeRewards(side, rewards);
 }
 
 async function performSwap(side, a, b, { automated = false } = {}) {
   if (!state || state.finished || busy[side] || !isAdjacent(a, b)) return false;
   if (!automated && !canHumanInteract(side)) return false;
   if (state.format === 'race' && timeFor(side) <= 0) return false;
+  if (state.format === 'turns' && (state.turnTimeLeft <= 0 || state.turnEnding)) return false;
 
   busy[side] = true;
   selected[side] = null;
@@ -1553,7 +2070,7 @@ function evaluateBotMove(board, move) {
 async function botMoveOnce(token) {
   if (!state || state.finished || state.opponentType !== 'bot' || busy.rival || token !== botTurnToken) return false;
   if (state.format === 'race' && state.rivalTime <= 0) return false;
-  if (state.format === 'turns' && state.currentSide !== 'rival') return false;
+  if (state.format === 'turns' && (state.currentSide !== 'rival' || state.turnTimeLeft <= 0 || state.turnEnding)) return false;
 
   busy.rival = true;
   renderHud();
@@ -1607,81 +2124,137 @@ async function runBotTurn() {
 
 async function consumeTurnMove(side) {
   if (!state || state.finished || state.format !== 'turns' || state.currentSide !== side) return;
+  consumeCrownMove(side);
   state.movesLeft = Math.max(0, state.movesLeft - 1);
   renderHud();
 
-  if (state.opponentType === 'online' && side === 'player') {
-    if (state.movesLeft > 0) {
-      await setOnlineTurnState({ currentSeat: onlineSeat, currentRound: state.currentRound, movesLeft: state.movesLeft });
-      return;
-    }
-    await delay(320);
-    let nextRound = state.currentRound;
-    let nextSeat = 1 - onlineSeat;
-    if (onlineSeat === 1) nextRound += 1;
-    if (nextRound > state.rounds) {
-      await setOnlineTurnState({ currentSeat: onlineSeat, currentRound: state.currentRound, movesLeft: 0, status: 'finished' });
-      finishGame();
-      return;
-    }
-    state.currentRound = nextRound;
-    state.movesLeft = state.movesPerTurn;
-    state.currentSide = 'rival';
-    await setOnlineTurnState({ currentSeat: nextSeat, currentRound: nextRound, movesLeft: state.movesPerTurn });
-    renderAllBoards();
+  if (state.opponentType === 'online' && side === 'player' && state.movesLeft > 0) {
+    await setOnlineTurnState({
+      currentSeat: onlineSeat,
+      currentRound: state.currentRound,
+      movesLeft: state.movesLeft,
+      turnTimeLeft: state.turnTimeLeft,
+    });
     return;
   }
 
   if (state.movesLeft > 0) return;
-  await delay(380);
+  await endTurn(side);
+}
+
+async function endTurn(side, { timeout = false } = {}) {
+  if (!state || state.finished || state.format !== 'turns' || state.currentSide !== side || state.turnEnding) return;
+  state.turnEnding = true;
+
+  if (timeout) {
+    state.movesLeft = 0;
+    const stateNode = $(side === 'player' ? 'playerMoveState' : 'rivalMoveState');
+    if (stateNode) stateNode.textContent = 'Tempo acabou';
+    if (side === 'player') $('comboLabel').textContent = '⏱️ Tempo do turno acabou.';
+  }
+
+  if (state.opponentType === 'online' && side === 'player') {
+    await delay(timeout ? 100 : 260);
+    let nextRound = state.currentRound;
+    const nextSeat = 1 - onlineSeat;
+    if (onlineSeat === 1) nextRound += 1;
+    if (nextRound > state.rounds) {
+      await setOnlineTurnState({
+        currentSeat: onlineSeat,
+        currentRound: state.currentRound,
+        movesLeft: 0,
+        turnTimeLeft: 0,
+        status: 'finished',
+      });
+      state.turnEnding = false;
+      finishGame();
+      return;
+    }
+    state.currentRound = nextRound;
+    state.currentSide = 'rival';
+    state.movesLeft = state.movesPerTurn;
+    resetTurnClock('rival');
+    await setOnlineTurnState({
+      currentSeat: nextSeat,
+      currentRound: nextRound,
+      movesLeft: state.movesPerTurn,
+      turnTimeLeft: state.turnTimeLeft,
+    });
+    selected.player = null;
+    selected.rival = null;
+    state.turnEnding = false;
+    renderAllBoards();
+    return;
+  }
+
+  if (state.opponentType === 'online' && side === 'rival') {
+    state.turnEnding = false;
+    return;
+  }
+
+  await delay(timeout ? 120 : 300);
   if (!state || state.finished) return;
 
   if (side === 'player') {
     if (state.opponentType === 'solo') {
       state.currentRound += 1;
-      if (state.currentRound > state.rounds) return finishGame();
-      state.movesLeft = state.movesPerTurn;
+      if (state.currentRound > state.rounds) {
+        state.turnEnding = false;
+        finishGame();
+        return;
+      }
       state.currentSide = 'player';
+      state.movesLeft = state.movesPerTurn;
     } else {
       state.currentSide = 'rival';
       state.movesLeft = state.movesPerTurn;
     }
   } else {
     state.currentRound += 1;
-    if (state.currentRound > state.rounds) return finishGame();
+    if (state.currentRound > state.rounds) {
+      state.turnEnding = false;
+      finishGame();
+      return;
+    }
     state.currentSide = 'player';
     state.movesLeft = state.movesPerTurn;
   }
+
+  resetTurnClock(state.currentSide);
   selected.player = null;
   selected.rival = null;
-  renderHud();
-  renderBoard('player');
-  if (state.opponentType !== 'solo') renderBoard('rival');
+  state.turnEnding = false;
+  renderAllBoards();
   if (state.opponentType === 'bot' && state.currentSide === 'rival') void runBotTurn();
 }
 
 function decrementCrownBoost(side, dt) {
+  if (state?.format === 'turns') return;
   const before = crownBoostFor(side);
   if (before <= 0) return;
-  const after = Math.max(0, before - dt);
-  setCrownBoost(side, after);
-  if (after <= 0.02) setCrownBoostLevel(side, 0);
+  setCrownBoost(side, Math.max(0, before - dt));
 }
 
-function tickTurnBoost() {
+function tickTurnMode() {
   if (!state || state.finished || state.format !== 'turns') return;
   const now = performance.now();
-  const last = Number(state.lastBoostTickAt || now);
+  const last = Number(state.lastTickAt || now);
   const dt = Math.max(0, (now - last) / 1000);
-  state.lastBoostTickAt = now;
-  if (state.currentSide === 'player') decrementCrownBoost('player', dt);
-  else decrementCrownBoost('rival', dt);
-  renderCrownBoost('player');
-  renderCrownBoost('rival');
-  renderScoreTag('player');
-  renderScoreTag('rival');
-  renderTimeBars();
-  if (state.opponentType === 'online' && state.currentSide === 'player') queueOnlinePlayerCommit();
+  state.lastTickAt = now;
+
+  const side = state.currentSide;
+  const remoteWaiting = state.opponentType === 'online' && side === 'rival';
+  if (!remoteWaiting && !busy[side] && !state.turnEnding) {
+    const activeDt = consumeClockFreeze(side, dt);
+    if (activeDt > 0) state.turnTimeLeft = Math.max(0, state.turnTimeLeft - activeDt);
+  }
+
+  renderHud();
+  if (state.opponentType === 'online' && side === 'player') queueOnlinePlayerCommit();
+
+  if (!remoteWaiting && state.turnTimeLeft <= 0 && !busy[side] && !state.turnEnding) {
+    void endTurn(side, { timeout: true });
+  }
 }
 
 function tickRace() {
@@ -1690,8 +2263,14 @@ function tickRace() {
   const dt = Math.max(0, (now - state.lastTickAt) / 1000);
   state.lastTickAt = now;
 
-  if (state.playerTime > 0) state.playerTime = Math.max(0, state.playerTime - dt);
-  if (state.opponentType !== 'solo' && state.rivalTime > 0) state.rivalTime = Math.max(0, state.rivalTime - dt);
+  if (state.playerTime > 0) {
+    const activeDt = consumeClockFreeze('player', dt);
+    if (activeDt > 0) state.playerTime = Math.max(0, state.playerTime - activeDt);
+  }
+  if (state.opponentType !== 'solo' && state.rivalTime > 0) {
+    const activeDt = consumeClockFreeze('rival', dt);
+    if (activeDt > 0) state.rivalTime = Math.max(0, state.rivalTime - activeDt);
+  }
   if (state.playerTime > 0) decrementCrownBoost('player', dt);
   if (state.opponentType !== 'solo' && state.rivalTime > 0) decrementCrownBoost('rival', dt);
 
@@ -1860,16 +2439,18 @@ async function startOnlineMatchAsHost() {
     currentSeat: 0,
     currentRound: 1,
     movesLeft: Number(config.movesPerTurn || 3),
+    turnTimeLeft: TURN_SECONDS,
     startedAt: Date.now(),
     players: {
-      0: { board: plainBoard(createBoard()), score: 0, bonusMoney: 0, time: Number(config.duration || 60), crownBoost: 0, crownLevel: 0, seq: 0, done: false },
-      1: { board: plainBoard(createBoard()), score: 0, bonusMoney: 0, time: Number(config.duration || 60), crownBoost: 0, crownLevel: 0, seq: 0, done: false },
+      0: { board: plainBoard(createBoard()), score: 0, bonusMoney: 0, time: Number(config.duration || 60), crownBoost: 0, crownLevel: 0, clockFreeze: 0, turnPenalty: 0, seq: 0, done: false },
+      1: { board: plainBoard(createBoard()), score: 0, bonusMoney: 0, time: Number(config.duration || 60), crownBoost: 0, crownLevel: 0, clockFreeze: 0, turnPenalty: 0, seq: 0, done: false },
     },
   };
   await fbUpdateDoc(ref, { match, updatedAt: Date.now() });
 }
 
 function startOnlineGameFromSnapshot(match, lobby) {
+  resetPowerAudio();
   if (!Number.isInteger(onlineSeat) || !match?.players) return;
   stopTimers();
   const mine = match.players[String(onlineSeat)] || match.players[onlineSeat];
@@ -1883,6 +2464,8 @@ function startOnlineGameFromSnapshot(match, lobby) {
     onlineNames: names,
     onlineMatchId: match.matchId,
     onlineSeq: Number(mine.seq || 0),
+    powerAudioEvents: { ...mine.powerAudioEvents },
+    rivalPowerAudioEvents: { ...theirs.powerAudioEvents },
     onlineDonePublished: !!mine.done,
     rivalDone: !!theirs.done,
     format: match.format || 'race',
@@ -1897,6 +2480,12 @@ function startOnlineGameFromSnapshot(match, lobby) {
     rivalCrownBoost: Number(theirs.crownBoost || 0),
     playerCrownLevel: Number(mine.crownLevel || 0),
     rivalCrownLevel: Number(theirs.crownLevel || 0),
+    playerClockFreeze: Number(mine.clockFreeze || 0),
+    rivalClockFreeze: Number(theirs.clockFreeze || 0),
+    playerTurnPenalty: Number(mine.turnPenalty || 0),
+    rivalTurnPenalty: Number(theirs.turnPenalty || 0),
+    turnTimeLeft: Number(match.turnTimeLeft ?? TURN_SECONDS),
+    turnEnding: false,
     board: restoreBoard(mine.board),
     rivalBoard: restoreBoard(theirs.board),
     rounds: Number(match.rounds || 3),
@@ -1923,7 +2512,7 @@ function startOnlineGameFromSnapshot(match, lobby) {
   renderDeveloperMode();
   renderAllBoards();
   if (state.format === 'race') timerId = setInterval(tickRace, 100);
-  else { state.lastBoostTickAt = performance.now(); timerId = setInterval(tickTurnBoost, 100); }
+  else { state.lastTickAt = performance.now(); timerId = setInterval(tickTurnMode, 100); }
 }
 
 function syncOnlineGameFromSnapshot(match, lobby) {
@@ -1934,7 +2523,17 @@ function syncOnlineGameFromSnapshot(match, lobby) {
   const mine = match.players?.[String(onlineSeat)] || match.players?.[onlineSeat];
   const theirs = match.players?.[String(1 - onlineSeat)] || match.players?.[1 - onlineSeat];
   if (!mine || !theirs) return;
+  const boardKey = (board) => board.flat().map((cell) => cell
+    ? `${cell.id}:${cell.type}:${cell.special || ''}:${cell.power || ''}` : '_').join('|');
+  const previousPlayerBoard = busy.player ? null : boardKey(state.board);
+  const previousRivalBoard = boardKey(state.rivalBoard);
   state.onlineNames = lobby?.names || state.onlineNames;
+  syncPowerAudio(theirs.powerAudioEvents);
+  const previousRival = {
+    score: state.rivalScore, money: bonusMoneyFor('rival'), time: onlineHudRivalTime ?? state.rivalTime,
+    crown: crownLevelFor('rival'), moves: state.movesLeft,
+    side: state.currentSide, round: state.currentRound,
+  };
 
   // O tabuleiro local é autoritativo enquanto a animação/jogada está acontecendo.
   if (!busy.player && Number(mine.seq || 0) > Number(state.onlineSeq || 0)) {
@@ -1944,23 +2543,52 @@ function syncOnlineGameFromSnapshot(match, lobby) {
     state.playerTime = Number(mine.time ?? state.playerTime);
     state.playerCrownBoost = Number(mine.crownBoost ?? state.playerCrownBoost ?? 0);
     state.playerCrownLevel = Number(mine.crownLevel ?? state.playerCrownLevel ?? 0);
+    state.playerClockFreeze = Number(mine.clockFreeze ?? state.playerClockFreeze ?? 0);
+    state.playerTurnPenalty = Number(mine.turnPenalty ?? state.playerTurnPenalty ?? 0);
     state.onlineSeq = Number(mine.seq || 0);
   }
-  const previousRivalScore = state.rivalScore;
+  if (state.format === 'race') {
+    const serverMineTime = Number(mine.time ?? state.playerTime);
+    if (serverMineTime < state.playerTime - 0.75) {
+      const correction = serverMineTime - state.playerTime;
+      state.playerTime = serverMineTime;
+      // The protocol sends time, not an attack event; do not invent an attacker.
+      queueHudReward('player', 'time', correction, { label: `−${formatSeconds(-correction)}` });
+    }
+  }
+  const previousPenalty = turnPenaltyFor('player');
+  state.playerTurnPenalty = Math.max(state.playerTurnPenalty || 0, Number(mine.turnPenalty || 0));
+  if (turnPenaltyFor('player') > previousPenalty) {
+    showDevilAttack('rival', turnPenaltyFor('player') - previousPenalty);
+  }
+
   state.rivalBoard = restoreBoard(theirs.board);
   state.rivalScore = Number(theirs.score || 0);
   state.rivalBonusMoney = Number(theirs.bonusMoney ?? state.rivalBonusMoney ?? 0);
   state.rivalCrownBoost = Number(theirs.crownBoost ?? state.rivalCrownBoost ?? 0);
   state.rivalCrownLevel = Number(theirs.crownLevel ?? state.rivalCrownLevel ?? 0);
-  if (state.rivalScore > previousRivalScore) {
-    showPlayFeedback('rival', { title: 'JOGADA RIVAL', points: state.rivalScore - previousRivalScore });
-  }
+  state.rivalClockFreeze = Number(theirs.clockFreeze ?? state.rivalClockFreeze ?? 0);
+  state.rivalTurnPenalty = Number(theirs.turnPenalty ?? state.rivalTurnPenalty ?? 0);
   state.rivalDone = !!theirs.done;
   if (state.format === 'race') state.rivalTime = Number(theirs.time ?? state.rivalTime);
+  onlineHudRivalTime = state.rivalTime;
   state.currentRound = Number(match.currentRound || state.currentRound);
   state.movesLeft = Number(match.movesLeft ?? state.movesLeft);
+  if (state.format === 'turns') state.turnTimeLeft = Number(match.turnTimeLeft ?? state.turnTimeLeft ?? TURN_SECONDS);
   state.currentSide = Number(match.currentSeat || 0) === onlineSeat ? 'player' : 'rival';
-  renderAllBoards();
+  showPlayFeedback('rival', {
+    points: Math.max(0, state.rivalScore - previousRival.score),
+    money: Math.max(0, bonusMoneyFor('rival') - previousRival.money),
+    seconds: state.format === 'race' ? Math.max(0, state.rivalTime - previousRival.time) : 0,
+    moves: state.format === 'turns' && previousRival.side === 'rival' && state.currentSide === 'rival'
+      && previousRival.round === state.currentRound ? Math.max(0, state.movesLeft - previousRival.moves) : 0,
+  });
+  if (crownLevelFor('rival') > previousRival.crown) {
+    queueHudReward('rival', 'crown', crownLevelFor('rival') - previousRival.crown);
+  }
+  renderHud();
+  if (!busy.player && previousPlayerBoard !== boardKey(state.board)) renderBoard('player');
+  if (previousRivalBoard !== boardKey(state.rivalBoard)) renderBoard('rival');
 
   if (match.status === 'finished' && !state.finished) finishGame();
 }
@@ -1977,7 +2605,10 @@ async function commitOnlinePlayerIfNeeded(side = 'player', extra = {}) {
     time: Math.max(0, state.playerTime),
     crownBoost: Math.max(0, state.playerCrownBoost || 0),
     crownLevel: Math.max(0, state.playerCrownLevel || 0),
+    clockFreeze: Math.max(0, state.playerClockFreeze || 0),
+    turnPenalty: Math.max(0, state.playerTurnPenalty || 0),
     seq: state.onlineSeq,
+    powerAudioEvents: { ...state.powerAudioEvents },
     done: state.format === 'race' ? (state.playerTime <= 0 && !busy.player) : false,
   };
   const updates = {
@@ -1985,6 +2616,9 @@ async function commitOnlinePlayerIfNeeded(side = 'player', extra = {}) {
     updatedAt: Date.now(),
     ...extra,
   };
+  if (state.format === 'turns' && state.currentSide === 'player') {
+    updates['match.turnTimeLeft'] = Math.max(0, Number(state.turnTimeLeft) || 0);
+  }
   try {
     await fbUpdateDoc(ref, updates);
   } catch (error) {
@@ -2000,13 +2634,14 @@ function queueOnlinePlayerCommit() {
   void commitOnlinePlayerIfNeeded('player');
 }
 
-async function setOnlineTurnState({ currentSeat, currentRound, movesLeft, status = 'playing' }) {
+async function setOnlineTurnState({ currentSeat, currentRound, movesLeft, turnTimeLeft = state?.turnTimeLeft ?? TURN_SECONDS, status = 'playing' }) {
   const ref = onlineRoomRef();
   if (!ref) return;
   await commitOnlinePlayerIfNeeded('player', {
     'match.currentSeat': currentSeat,
     'match.currentRound': currentRound,
     'match.movesLeft': movesLeft,
+    'match.turnTimeLeft': Math.max(0, Number(turnTimeLeft) || 0),
     'match.status': status,
   });
 }
@@ -2101,6 +2736,7 @@ function parseOpponent(value) {
 }
 
 function startGame(config = {}) {
+  resetPowerAudio();
   stopTimers();
   const opponent = config.opponentType
     ? { opponentType: config.opponentType, botProfile: config.botProfile || 'jade' }
@@ -2127,6 +2763,12 @@ function startGame(config = {}) {
     rivalCrownBoost: 0,
     playerCrownLevel: 0,
     rivalCrownLevel: 0,
+    playerClockFreeze: 0,
+    rivalClockFreeze: 0,
+    playerTurnPenalty: 0,
+    rivalTurnPenalty: 0,
+    turnTimeLeft: TURN_SECONDS,
+    turnEnding: false,
     board: createBoard(),
     rivalBoard: createBoard(),
     rounds,
@@ -2148,7 +2790,7 @@ function startGame(config = {}) {
   pointerGesture = { player: null, rival: null };
   $('comboLabel').textContent = format === 'race'
     ? 'Arraste uma joia. Jogadas melhores podem render segundos extras.'
-    : `Rodada 1: você tem ${movesPerTurn} movimentos.`;
+    : `Rodada 1: ${movesPerTurn} movimentos e ${TURN_SECONDS}s para jogar.`;
   showScreen('gameScreen');
   renderDeveloperMode();
   renderAllBoards();
@@ -2157,8 +2799,8 @@ function startGame(config = {}) {
     timerId = setInterval(tickRace, 100);
     if (state.opponentType === 'bot') scheduleBotRace();
   } else {
-    state.lastBoostTickAt = performance.now();
-    timerId = setInterval(tickTurnBoost, 100);
+    state.lastTickAt = performance.now();
+    timerId = setInterval(tickTurnMode, 100);
   }
 }
 
@@ -2227,7 +2869,7 @@ function finishGame() {
 
   const rateText = `100 pts = ${formatMoney(result.pointValue * 100)}`;
   $('resultDetail').textContent = state.format === 'race'
-    ? `Tempo inicial: ${state.duration}s por jogador · bônus limitado a +30s no relógio · ${rateText}.`
+    ? `Tempo inicial: ${state.duration}s por jogador · ${rateText}.`
     : `${state.rounds} rodadas · ${state.movesPerTurn} movimentos por lado · ${rateText}.`;
 
   const money = $('moneyResult');
@@ -2243,7 +2885,13 @@ function finishGame() {
     money.classList.add(result.moneyDelta > 0 ? 'win' : 'lose');
   }
 
-  showScreen('resultScreen');
+  const revealResult = () => {
+    resetScoreHud(state.playerScore, state.rivalScore);
+    showScreen('resultScreen');
+  };
+  const rewardWait = remainingHudRewardTime();
+  if (rewardWait > 0) hudLater(revealResult, rewardWait + 30);
+  else revealResult();
   if (state.opponentType === 'online' && onlineRoomId && fbUpdateDoc) {
     const ref = onlineRoomRef();
     if (ref) {
@@ -2340,11 +2988,11 @@ function syncMenu(pushOnline = true) {
   $('durationLabel').textContent = isSolo ? 'Tempo da partida' : 'Tempo por jogador';
   $('configCaption').textContent = race
     ? (isSolo ? 'Defina quanto tempo você terá para pontuar.' : 'Cada lado começa com seu próprio relógio.')
-    : (isSolo ? 'Escolha quantas rodadas e movimentos terá o desafio.' : 'Defina rodadas e movimentos antes de passar a vez.');
+    : `Cada turno tem ${TURN_SECONDS}s para usar os movimentos. Animações e cascatas não gastam o relógio.`;
 
   $('formatHelp').innerHTML = race
-    ? '<strong>Bônus:</strong> ↔/↕ +1s · 💣/🌈 +2s · cascata +1s · especiais ativados até +2s (máx. +4s). 👑 ativa pontos x2 por 8s; se pegar outra ativa, vira x4 por 10s.'
-    : '<strong>Troca de vez:</strong> quando os movimentos acabam, o outro jogador recebe a vez.';
+    ? '<strong>Bônus:</strong> criar ↔/↕ +4s · 💣 +6s · ◆ Arco-íris +5s · cascata x2 +1s · x3+ +2s. ⏳ congela 10s. 😈 tira 2s do rival. Sem teto de tempo extra.'
+    : '<strong>Turnos:</strong> 90s por vez. Criar ↔/↕, 💣 ou ◆ Arco-íris dá +1 movimento. Extras acumulam sem limite. ⏳ congela 10s. 😈 tira 5s do próximo turno rival (mín. 30s).';
 
   if (isSolo) {
     $('opponentHelp').textContent = 'Treino individual: busque a maior pontuação sem rival.';
@@ -2369,12 +3017,11 @@ function syncMenu(pushOnline = true) {
   const pointRate = $('pointValueSelect').selectedOptions[0]?.textContent || '100 pontos = R$ 1,00';
   const configText = race
     ? `${$('durationSelect').value}s${isSolo ? '' : ' cada'}`
-    : `${$('roundsSelect').value} rodadas · ${$('movesSelect').value} mov./turno`;
+    : `${$('roundsSelect').value} rodadas · ${$('movesSelect').value} mov./turno · ${TURN_SECONDS}s/turno`;
   $('menuSummary').innerHTML = `<strong>${rival}</strong> · ${race ? 'Corrida' : 'Turnos'} · ${configText} · ${pointRate}`;
 
   if (isOnline && pushOnline && onlineRoomId && !onlineSyncingMenu) queueOnlineLobbyPush({ resetReady: true });
 }
-
 
 function devSelection() {
   const side = $('devSide')?.value || 'player';
@@ -2424,7 +3071,7 @@ function placeDevPreset(preset) {
     : preset === 'row' ? `${base} ↔`
       : preset === 'col' ? `${base} ↕`
         : preset === 'bomb' ? `${base} 💣`
-          : preset === 'prism' ? '🌈 arco-íris'
+          : preset === 'prism' ? '◆ arco-íris multicolorido'
             : `${base} ${POWER_MARK[preset] || ''} ${POWER_NAME[preset] || preset}`;
   setDevStatus(`${side === 'player' ? 'Você' : 'Rival'} · linha ${r + 1}, coluna ${c + 1}: ${label}`, 'ok');
   if ($('comboLabel')) $('comboLabel').textContent = `DEV: ${label} criada. Agora você pode executar a peça.`;
@@ -2446,60 +3093,61 @@ async function executeDevPiece() {
   const { side, r, c } = devSelection();
   const board = boardData(side);
   const cell = board?.[r]?.[c];
-  if (!cell) {
-    setDevStatus('Casa inválida.', 'error');
-    return;
-  }
-  if (!cell.special && !cell.power) {
-    setDevStatus('Essa casa não tem especial nem poder para executar.', 'error');
-    return;
-  }
-  if (busy[side]) {
-    setDevStatus('Espere a animação atual terminar.', 'error');
-    return;
-  }
+  if (!cell) return setDevStatus('Casa inválida.', 'error');
+  if (!cell.special && !cell.power) return setDevStatus('Essa casa não tem especial nem poder para executar.', 'error');
+  if (busy[side]) return setDevStatus('Espere a animação atual terminar.', 'error');
+
   busy[side] = true;
   selected[side] = null;
-  renderBoard(side);
   const triggerSet = new Set([key(r, c)]);
   const expanded = expandAllEffects(board, triggerSet);
+  const rewards = createCascadeRewards();
   const rawGained = Math.round(50 + expanded.clearSet.size * 14 + expanded.triggered.size * 32 + expanded.powerTriggered.size * 20);
-  if (expanded.crownCount) activateCrownBoost(side, expanded.crownCount);
-  const crownMultiplier = crownMultiplierFor(side);
-  const gained = Math.round(rawGained * crownMultiplier);
+  const origin = rewardOrigin([{ r, c }]);
+
+  if (expanded.crownCount) activateCrownBoost(side, expanded.crownCount, origin);
+  const multiplier = crownMultiplierFor(side);
+  const gained = Math.round(rawGained * multiplier);
   setScore(side, scoreFor(side) + gained);
+
   const moneyBonus = Math.round((expanded.cashCount || 0) * DIRECT_CASH_BONUS * 100) / 100;
   if (moneyBonus) addBonusMoney(side, moneyBonus);
-  let bonusSeconds = state.format === 'race' ? timeBonusFromCreation([], 1, expanded.triggered.size) : 0;
-  if (state.format === 'race' && expanded.clockCount) bonusSeconds += expanded.clockCount * CLOCK_BONUS_SECONDS;
-  awardTime(side, bonusSeconds);
+  rewards.clockCount += expanded.clockCount || 0;
+  rewards.devilCount += expanded.devilCount || 0;
+
+  const label = cell.special === 'row' ? '↔ Seta'
+    : cell.special === 'col' ? '↕ Seta'
+      : cell.special === 'bomb' ? '💣 Bomba'
+        : cell.special === 'prism' ? '◆ Arco-íris'
+          : cell.power === 'crown' ? `👑 x${multiplier}`
+            : cell.power === 'devil' ? (state.format === 'race' ? '😈 -2s rival' : '😈 -5s próximo turno rival')
+              : cell.power === 'cash' ? `💸 +${formatMoney(moneyBonus)}`
+                : cell.power === 'clock' ? `⏳ congela ${CLOCK_FREEZE_SECONDS}s`
+                  : 'Peça especial';
+
+  if (side === 'player') $('comboLabel').textContent = `DEV: ${label}`;
+  collectCascadeFeedback(side, rewards, gained, moneyBonus, origin);
+  renderHud();
+  void playMatchSound(side, 2);
+
   const usedBomb = [...expanded.triggered].some((value) => {
     const pos = parseKey(value);
     return board[pos.r]?.[pos.c]?.special === 'bomb';
   });
-  const labelParts = [];
-  if (cell.special === 'row' || cell.special === 'col') labelParts.push('↔/↕ Seta');
-  if (cell.special === 'bomb') labelParts.push('💣 Bomba');
-  if (cell.special === 'prism') labelParts.push('🌈 Arco-íris');
-  if (cell.power === 'crown') labelParts.push(`👑 x${crownMultiplier}`);
-  if (cell.power === 'devil') labelParts.push('😈 Diabinho');
-  if (cell.power === 'cash') labelParts.push(`💸 +${formatMoney(moneyBonus)}`);
-  if (cell.power === 'clock') labelParts.push(`⏳ +${expanded.clockCount * CLOCK_BONUS_SECONDS}s`);
-  const label = labelParts.length ? labelParts.join(' · ') : 'Peça especial';
-  if (side === 'player') $('comboLabel').textContent = `DEV: ${label}`;
-  showPlayFeedback(side, { title: `DEV · ${label}`, points: gained, seconds: bonusSeconds, money: moneyBonus, boosted: expanded.crownCount > 0 });
-  renderHud();
-  void playMatchSound(side, 2);
   if (usedBomb) void playBombSound(side);
+
   await showLineEffects(side, triggeredLineEffects(board, expanded.triggered));
   await showClear(side, expanded.clearSet, expanded.triggered);
   clearBoardCells(board, expanded.clearSet);
   const movement = collapseBoard(board);
   renderBoard(side);
   await animateFalls(side, movement);
-  await resolveMatches(side);
+  await resolveMatches(side, [], rewards);
+  finalizeCascadeRewards(side, rewards);
+
   busy[side] = false;
   renderBoard(side);
+  renderHud();
   setDevStatus(`Executado em ${side === 'player' ? 'você' : 'rival'} · linha ${r + 1}, coluna ${c + 1}.`, 'ok');
 }
 
@@ -2634,6 +3282,7 @@ window.JewelsGame = Object.freeze({
       round: state.currentRound,
       rounds: state.rounds,
       movesLeft: state.movesLeft,
+      turnTimeLeft: state.turnTimeLeft,
       currentSide: state.currentSide,
       pointValue: state.pointValue,
       finished: state.finished,
