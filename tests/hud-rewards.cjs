@@ -281,6 +281,86 @@ test('reward flights preserve gameplay and land before HUD updates', async (t) =
     await page.emulateMedia({ reducedMotion:'no-preference' });
   });
 
+  await t.test('each confirmed special gets its own pause and voice before falls, with one final total', async () => {
+    await start('turns');
+    await page.emulateMedia({reducedMotion:'reduce'});
+    await run(`window.savedMomentSound=playPowerSound; window.momentSounds=[];
+      $('devTools').hidden=true;
+      playPowerSound=(kind,side,options)=>momentSounds.push({kind,side,distinct:!!options?.distinct});
+      window.savedMomentRandom=Math.random; window.momentSeed=47;
+      Math.random=()=>((momentSeed=(1664525*momentSeed+1013904223)>>>0)/4294967296);
+      state.board=Array.from({length:8},(_,r)=>Array.from({length:8},(_,c)=>makeCell((r*2+c)%6,null,null)));
+      for(let c=0;c<4;c++) state.board[0][c].type=0;
+      for(let c=3;c<7;c++) state.board[4][c].type=1;
+      renderBoard('player'); window.beforeMomentBoard=JSON.stringify(plainBoard(state.board));
+      window.momentDone=false; window.momentError=null; busy.player=true;
+      resolveMatches('player').then(()=>momentDone=true).catch(e=>{momentDone=true;momentError=e.message;}); void 0;`);
+    try {
+      await advance(500);
+      assert.equal(await page.locator('#board .creation-moment').count(),0);
+      assert.equal(await page.locator('#board.celebrating-creation').count(),1);
+      assert.equal(await run('state.movesLeft'),3,'rewards stay accumulated until the end');
+      assert.equal(await run('JSON.stringify(plainBoard(state.board))===beforeMomentBoard'),true,'no fall during the celebration');
+      assert.equal(await page.locator('#board .moment-source').count(),4);
+      assert.equal(await run("momentSounds.filter(s=>s.kind==='moves').length"),1);
+      if(process.env.JOIAS_SCREENSHOT_DIR) {
+        await fs.mkdir(process.env.JOIAS_SCREENSHOT_DIR,{recursive:true});
+        await page.locator('#playerPanel').screenshot({path:path.join(process.env.JOIAS_SCREENSHOT_DIR,'extra-move-moment.png')});
+      }
+      await advance(1800);
+      assert.equal(await run("momentSounds.filter(s=>s.kind==='moves').length"),2,'second creation has a separate voice');
+      assert.equal(await run('JSON.stringify(plainBoard(state.board))===beforeMomentBoard'),true);
+      assert.equal(await page.locator('#board .moment-target[data-r="4"]').count(),1);
+      for(let i=0;i<100 && !(await run('momentDone'));i++) await advance(500);
+      assert.equal(await run('momentDone'),true);
+      assert.equal(await run('momentError'),null);
+      const announced=await run("momentSounds.filter(s=>s.kind==='moves').length");
+      assert.ok(announced>=2);
+      assert.equal(await run('state.movesLeft'),3+announced,'no additional voice at the accumulated award');
+      assert.equal(await page.locator('.creation-moment').count(),0);
+      assert.equal(await page.locator('.celebrating-creation').count(),0);
+      await advance(3500);
+      assert.equal(await text('playerMoves'),`${3+announced} MOV.`);
+    } finally {
+      await run('Math.random=savedMomentRandom; playPowerSound=savedMomentSound;');
+      await page.emulateMedia({reducedMotion:'no-preference'});
+      await start();
+    }
+  });
+
+  await t.test('jewel celebration fits mobile, honors reduced motion and cancels on restart', async () => {
+    for(const width of [320,390,768]) {
+      await page.setViewportSize({width,height:1024});
+      await start();
+      await page.emulateMedia({reducedMotion:'reduce'});
+      await run(`window.creationFinished=false; window.creationRewards=createCascadeRewards();
+        $('devTools').hidden=true;
+        showCreationMoments('player',[{pos:{r:5,c:3},special:'prism',sources:[{r:5,c:3}]}],creationRewards).then(()=>creationFinished=true); void 0;`);
+      await advance(400);
+      assert.equal(await page.locator('.creation-moment').count(),0,'no message box obscures the board');
+      assert.equal(await page.locator('#board .moment-target[data-r="5"][data-c="3"]').count(),1);
+      assert.equal(await page.locator('#board .gem').count(),64);
+      assert.equal(await run('creationFinished'),false,'reduced motion still allows time to read');
+      if(process.env.JOIAS_SCREENSHOT_DIR) await page.locator('#playerPanel').screenshot({path:path.join(process.env.JOIAS_SCREENSHOT_DIR,`jewel-moment-${width}.png`)});
+      await start();
+      await advance(1500);
+      assert.equal(await page.locator('.creation-moment,.moment-source,.celebrating-creation').count(),0);
+      assert.equal(await run('state.playerScore'),0);
+    }
+    // A real resolver abandoned during its new pause cannot award the new match.
+    await start('turns');
+    await run(`state.board=Array.from({length:8},(_,r)=>Array.from({length:8},(_,c)=>makeCell((r*2+c)%6,null,null)));
+      for(let c=0;c<4;c++) state.board[0][c].type=0; renderBoard('player');
+      window.abandonedDone=false; resolveMatches('player').then(()=>abandonedDone=true); void 0;`);
+    await advance(200);
+    await start('turns');
+    await advance(2000);
+    assert.equal(await run('abandonedDone'),true);
+    assert.deepEqual(await run('[state.playerScore,state.movesLeft,busy.player]'),[0,3,false]);
+    await page.emulateMedia({reducedMotion:'no-preference'});
+    await page.setViewportSize({width:768,height:1024});
+  });
+
   await t.test('restart clears pending feedback; final reward remains readable before results', async () => {
     await start();
     await run("setScore('player',120); showPlayFeedback('player',{points:120});");
@@ -402,15 +482,23 @@ test('reward flights preserve gameplay and land before HUD updates', async (t) =
       }
       await audioAct(`resetPowerAudio(); await playPowerSound('clock','player');`);
       await audioPage.waitForTimeout(1450);
-      assert.equal(await audioRun('activePowerAudio.size'),0,'clock cue ends long before the freeze');
+      assert.equal(await audioRun('activePowerAudio.size'),1,'clock continues beyond a single tick');
+      assert.deepEqual(await audioRun(`(()=>{const j=[...activePowerAudio].find(j=>j.kind==='clock');return {volume:j?.gain.gain.value,rate:j?.source.playbackRate.value,loop:j?.source.loop};})()`),{volume:1,rate:1,loop:false},'two original ticks keep their volume and speed');
+      await audioPage.waitForTimeout(900);
+      assert.equal(await audioRun('activePowerAudio.size'),0,'clock stops after the second tick, before the third');
       await audioPage.waitForTimeout(250);
       assert.ok(await audioRun('commonAudioGain.gain.value>0.98'),'ordinary audio recovers smoothly');
       await audioAct(`resetPowerAudio(); await playPowerSound('moves','rival'); await playPowerSound('crown','rival');`);
       await audioPage.waitForTimeout(220);
       await audioAct(`await playPowerSound('devil','rival'); await playPowerSound('devil','rival');`);
       await audioPage.waitForTimeout(220);
+      assert.ok(await audioRun(`[...activePowerAudio].some(j=>j.kind==='moves')`),'incoming attack does not interrupt a spoken word');
+      await audioPage.waitForFunction(()=>window.__hudTest(`[...activePowerAudio].some(j=>j.kind==='devil')`));
       assert.ok(await audioRun(`activePowerAudio.size<=2 && [...activePowerAudio].some(j=>j.kind==='devil' && j.priority===3)`));
       assert.equal(await audioRun(`[...activePowerAudio,...powerAudioQueue].filter(j=>j.kind==='devil').length`),1);
+      await audioAct(`resetPowerAudio(); await playPowerSound('moves','player',{distinct:true,spotlight:true}); await playPowerSound('moves','player',{distinct:true,spotlight:true});`);
+      assert.equal(await audioRun(`[...activePowerAudio,...powerAudioQueue].filter(j=>j.kind==='moves').length`),2,'individual creation voices are not coalesced');
+      assert.equal(await audioRun(`[...activePowerAudio].find(j=>j.kind==='moves').gain.gain.value`),0.75,'voice has full gain from its first sample');
       await audioAct(`await playMatchSound('player',3); await playBombSound('player');`);
       assert.ok(await audioRun('matchAudioBuffer.duration>0 && bombAudioBuffer.duration>0'));
       await audioAct(`resetPowerAudio(); await playPowerSound('crown','player'); await playPowerSound('cash','player'); startGame({opponentType:'solo'}); stopTimers();`);
@@ -425,9 +513,9 @@ test('reward flights preserve gameplay and land before HUD updates', async (t) =
       await offlinePage.goto(`http://127.0.0.1:${server.address().port}/`);
       await offlinePage.evaluate(async()=>{await navigator.serviceWorker.ready;});
       await offlinePage.waitForFunction(()=>!!navigator.serviceWorker.controller);
-      assert.ok((await offlinePage.evaluate(()=>caches.keys())).includes('joias-findom-v23-power-audio'));
+      assert.ok((await offlinePage.evaluate(()=>caches.keys())).includes('joias-findom-v29-shorter-move-pause'));
       assert.equal(await offlinePage.evaluate(async()=>{
-        const cache=await caches.open('joias-findom-v23-power-audio');
+        const cache=await caches.open('joias-findom-v29-shorter-move-pause');
         return !!(await cache.match(new URL('./jewel-theme.css',location.href).href));
       }),true,'art direction is cached for offline play');
       await offlineContext.setOffline(true);

@@ -21,11 +21,14 @@ const SPECIAL_MARK = Object.freeze({ row: '↔', col: '↕', bomb: '💣', prism
 const SPECIAL_NAME = Object.freeze({ row: 'Seta horizontal', col: 'Seta vertical', bomb: 'Bomba 3×3', prism: 'Arco-íris' });
 const SPECIAL_PRIORITY = Object.freeze({ row: 1, col: 1, bomb: 2, prism: 3 });
 const ANIM = Object.freeze({ swap: 250, invalid: 340, matchPrime: 90, match: 340, cascadePause: 150, specialBorn: 520 });
+const CREATION_MOMENT = Object.freeze({ moves: 1400, special: 1100 });
 const MATCH_AUDIO_SRC = './audio/gem-match.mp3';
 const BOMB_AUDIO_SRC = './audio/bomb.mp3';
 const POWER_AUDIO = Object.freeze({
-  clock: { src: './audio/clock.mp3', volume: 0.22, duration: 1.25 },
-  moves: { src: './audio/extra-move.mp3', volume: 0.75, voice: true },
+  // Original tick transients at ~0.7s and ~1.7s; stop before the third (~2.7s).
+  clock: { src: './audio/clock.mp3', volume: 1, duration: 2.1, originalEnvelope: true },
+  // Speech ends around 1.2s; retain its tail, omit only the remaining silence.
+  moves: { src: './audio/extra-move.mp3', volume: 0.75, duration: 1.35, voice: true },
   crown: { src: './audio/crown.mp3', volume: 0.48 },
   cash: { src: './audio/cash.mp3', volume: 0.6 },
   devil: { src: './audio/devil.mp3', volume: 0.65, voice: true },
@@ -62,6 +65,7 @@ let bombAudioBuffer = null;
 let bombAudioLoadPromise = null;
 let commonAudioGain = null;
 const powerAudioLoads = new Map();
+const powerAudioDurations = new Map();
 const powerAudioQueue = [];
 const activePowerAudio = new Set();
 let powerAudioTimer = null;
@@ -279,6 +283,9 @@ function runHudReward(laneId) {
 }
 
 function resetHudRewards() {
+  document.querySelectorAll('.celebrating-creation, .moment-source, .moment-target').forEach(node => {
+    node.classList.remove('celebrating-creation', 'moment-source', 'moment-target');
+  });
   rewardFlights.forEach(removeRewardFlight);
   onlineHudRivalTime = null;
   hudTimers.forEach(clearTimeout);
@@ -431,6 +438,7 @@ function loadPowerAudio(kind) {
         return response.arrayBuffer();
       })
       .then((bytes) => context.decodeAudioData(bytes))
+      .then((buffer) => { powerAudioDurations.set(kind, buffer.duration); return buffer; })
       .catch((error) => { console.warn(`[Áudio] Poder ${kind} indisponível.`, error); return null; }));
   }
   return powerAudioLoads.get(kind);
@@ -466,9 +474,11 @@ function pumpPowerAudio() {
   powerAudioQueue.sort((a, b) => b.priority - a.priority || a.created - b.created);
   const job = powerAudioQueue[0];
   // Incoming attacks can interrupt a quieter rival effect, never pile on top of it.
-  if (job.priority === 3) {
+  if (job.priority >= 2.5) {
     for (const active of activePowerAudio) {
-      if (active.priority < 3 && (activePowerAudio.size >= 2 || POWER_AUDIO[active.kind].voice)) stopPowerAudio(active);
+      if (active.kind === 'moves') continue; // Finish spoken words; never cut a syllable to prioritize another cue.
+      if (active.priority < job.priority && (activePowerAudio.size >= 2
+        || (POWER_AUDIO[job.kind].voice && POWER_AUDIO[active.kind].voice))) stopPowerAudio(active);
     }
   }
   const voiceBusy = POWER_AUDIO[job.kind].voice && [...activePowerAudio].some(active => POWER_AUDIO[active.kind].voice);
@@ -484,14 +494,22 @@ function pumpPowerAudio() {
   const gain = context.createGain();
   const duration = Math.min(job.buffer.duration, config.duration || Infinity);
   const volume = config.volume * (job.side === 'rival' && job.kind !== 'devil' ? 0.35 : 1);
+  // Give the output and ducking a short head start. Speech starts at full gain,
+  // from sample zero, without the effect fade-in swallowing the initial vowel.
+  const startAt = context.currentTime + (job.kind === 'moves' ? 0.08 : 0.01);
   source.buffer = job.buffer;
-  gain.gain.setValueAtTime(0, context.currentTime);
-  gain.gain.linearRampToValueAtTime(volume, context.currentTime + 0.025);
-  gain.gain.setValueAtTime(volume, context.currentTime + Math.max(0.025, duration - 0.16));
-  gain.gain.linearRampToValueAtTime(0, context.currentTime + duration);
+  source.playbackRate.value = 1;
+  const preserveEnvelope = job.kind === 'moves' || config.originalEnvelope;
+  gain.gain.value = preserveEnvelope ? volume : 0;
+  if (!preserveEnvelope) {
+    gain.gain.setValueAtTime(0, context.currentTime);
+    gain.gain.linearRampToValueAtTime(volume, startAt + 0.025);
+    gain.gain.setValueAtTime(volume, startAt + Math.max(0.025, duration - 0.16));
+    gain.gain.linearRampToValueAtTime(0, startAt + duration);
+  }
   source.connect(gain);
   gain.connect(context.destination);
-  Object.assign(job, { source, gain });
+  Object.assign(job, { source, gain, startAt });
   activePowerAudio.add(job);
   lastPowerAudioAt = now;
   source.onended = () => {
@@ -501,12 +519,12 @@ function pumpPowerAudio() {
     duckCommonAudio();
     pumpPowerAudio();
   };
-  source.start(0, 0, duration); // The clock is a short activation cue, never a loop.
+  source.start(startAt, 0, duration); // One playback, never a loop.
   duckCommonAudio();
   if (powerAudioQueue.length) powerAudioTimer = setTimeout(pumpPowerAudio, 180);
 }
 
-async function playPowerSound(kind, side) {
+async function playPowerSound(kind, side, { distinct = false, spotlight = false } = {}) {
   const match = state;
   const epoch = powerAudioEpoch;
   const created = performance.now();
@@ -519,19 +537,19 @@ async function playPowerSound(kind, side) {
   const buffer = await loadPowerAudio(kind);
   if (!buffer || state !== match || epoch !== powerAudioEpoch || document.hidden || performance.now() - created > 2600) return;
   // Coalesce repeated powers in a cascade, including while a clip is playing.
-  if ([...activePowerAudio, ...powerAudioQueue].some(job => job.kind === kind && job.side === side)) return;
-  const priority = kind === 'devil' && side === 'rival' ? 3 : side === 'player' ? 2 : 1;
+  if (!distinct && [...activePowerAudio, ...powerAudioQueue].some(job => job.kind === kind && job.side === side)) return;
+  const priority = kind === 'devil' && side === 'rival' ? 3 : side === 'player' ? (spotlight ? 2.5 : 2) : 1;
   if (powerAudioQueue.length >= 8) return;
   powerAudioQueue.push({ kind, side, match, buffer, priority, created });
   pumpPowerAudio();
 }
 
-function recordPowerAudio(kind, side) {
+function recordPowerAudio(kind, side, options) {
   if (state?.opponentType === 'online' && side === 'player') {
     state.powerAudioEvents ??= {};
     state.powerAudioEvents[kind] = (state.powerAudioEvents[kind] || 0) + 1;
   }
-  void playPowerSound(kind, side);
+  void playPowerSound(kind, side, options);
 }
 
 function syncPowerAudio(events = {}) {
@@ -1721,6 +1739,41 @@ async function previewSpecialCreations(side, creations) {
   else await delay(300);
 }
 
+// Celebrate the confirmed match while its sources are still on the board.
+// This is presentation only: the accumulated rewards are applied as before.
+async function showCreationMoments(side, creations, rewards) {
+  if (!creations.length) return;
+  const match = state;
+  const root = boardRoot(side);
+  if (!root || !match) return;
+  try {
+    for (const creation of creations) {
+      if (state !== match || match.finished) return;
+      const moves = match.format === 'turns' ? turnMovesFromCreation([creation]) : 0;
+      const duration = moves
+        ? Math.max(CREATION_MOMENT.moves, Math.min(POWER_AUDIO.moves.duration, powerAudioDurations.get('moves') || POWER_AUDIO.moves.duration) * 1000 + 80)
+        : CREATION_MOMENT.special;
+      const sources = (creation.sources || [creation.pos]).map(pos => getCellElement(side, pos)).filter(Boolean);
+      const target = getCellElement(side, creation.pos);
+      root.classList.add('celebrating-creation');
+      sources.forEach(node => node.classList.add('moment-source'));
+      target?.classList.add('moment-target');
+      if (moves) {
+        rewards.announcedMoves = (rewards.announcedMoves || 0) + moves;
+        recordPowerAudio('moves', side, { distinct: true, spotlight: true });
+      }
+      // The existing sparkle also celebrates a new jewel; it grants no crown.
+      if (!moves || creation.special === 'prism') void playPowerSound('crown', side, { distinct: true, spotlight: true });
+      await delay(duration);
+      sources.forEach(node => node.classList.remove('moment-source'));
+      target?.classList.remove('moment-target');
+    }
+  } finally {
+    // An abandoned match must never clean up the new match's presentation.
+    if (state === match) root.classList.remove('celebrating-creation');
+  }
+}
+
 async function showClear(side, clearSet, triggered = new Set()) {
   const root = boardRoot(side);
   const cells = [];
@@ -1869,7 +1922,7 @@ function finalizeCascadeRewards(side, rewards) {
   if (state.format === 'race' && rewards.seconds > 0) awardTime(side, rewards.seconds);
   if (state.format === 'turns' && rewards.moves > 0) {
     state.movesLeft += rewards.moves;
-    recordPowerAudio('moves', side);
+    if (rewards.moves > (rewards.announcedMoves || 0)) recordPowerAudio('moves', side);
   }
   if (rewards.clockCount > 0) addClockFreeze(side, rewards.clockCount);
   const target = otherSide(side);
@@ -1894,13 +1947,14 @@ function clearBoardCells(board, clearSet) {
 }
 
 async function resolveMatches(side, preferred = [], sharedRewards = null) {
+  const match = state;
   const board = boardData(side);
   let cascade = 1;
   let total = 0;
   const rewards = sharedRewards || createCascadeRewards();
   const ownsRewards = !sharedRewards;
 
-  while (state && !state.finished) {
+  while (state === match && state && !state.finished) {
     const result = findMatches(board);
     if (!result.matched.size) break;
     const creations = buildSpecialCreations(board, result, cascade === 1 ? preferred : []);
@@ -1935,12 +1989,17 @@ async function resolveMatches(side, preferred = [], sharedRewards = null) {
     const stateNode = $(side === 'player' ? 'playerMoveState' : 'rivalMoveState');
     if (stateNode) stateNode.textContent = cascade > 1 ? `Cascata x${cascade}` : `+${gained}`;
     renderHud();
+    await showCreationMoments(side, creations, rewards);
+    if (state !== match || match.finished) return total;
     void playMatchSound(side, cascade);
     if (usedBomb) void playBombSound(side);
 
     if (creations.length) await previewSpecialCreations(side, creations);
+    if (state !== match || match.finished) return total;
     await showLineEffects(side, triggeredLineEffects(board, expanded.triggered));
+    if (state !== match || match.finished) return total;
     await showClear(side, clearSet, expanded.triggered);
+    if (state !== match || match.finished) return total;
     clearBoardCells(board, clearSet);
 
     const createdIds = [];
@@ -1956,17 +2015,20 @@ async function resolveMatches(side, preferred = [], sharedRewards = null) {
     const movement = collapseBoard(board);
     renderBoard(side);
     await animateFalls(side, movement);
+    if (state !== match || match.finished) return total;
     await pulseCreatedSpecials(side, createdIds);
     await delay(ANIM.cascadePause);
     cascade += 1;
   }
 
+  if (state !== match || !state || state.finished) return total;
   if (ownsRewards) finalizeCascadeRewards(side, rewards);
   await ensurePlayableForSide(side);
   return total;
 }
 
 async function resolveDirectSpecialSwap(side, a, b) {
+  const match = state;
   const board = boardData(side);
   const plan = buildDirectSpecialPlan(board, a, b);
   const rewards = createCascadeRewards();
@@ -2004,12 +2066,15 @@ async function resolveDirectSpecialSwap(side, a, b) {
 
   await showLineEffects(side, triggeredLineEffects(board, plan.triggered));
   await showClear(side, plan.clearSet, plan.triggered);
+  if (state !== match || match.finished) return;
   clearBoardCells(board, plan.clearSet);
   const movement = collapseBoard(board);
   renderBoard(side);
   await animateFalls(side, movement);
   await delay(ANIM.cascadePause);
+  if (state !== match || match.finished) return;
   await resolveMatches(side, [], rewards);
+  if (state !== match || match.finished) return;
   finalizeCascadeRewards(side, rewards);
 }
 
@@ -2018,6 +2083,7 @@ async function performSwap(side, a, b, { automated = false } = {}) {
   if (!automated && !canHumanInteract(side)) return false;
   if (state.format === 'race' && timeFor(side) <= 0) return false;
   if (state.format === 'turns' && (state.turnTimeLeft <= 0 || state.turnEnding)) return false;
+  const match = state;
 
   busy[side] = true;
   selected[side] = null;
@@ -2030,6 +2096,7 @@ async function performSwap(side, a, b, { automated = false } = {}) {
   const directSpecial = isDirectSpecialCombo(beforeA, beforeB);
   const valid = directSpecial || hasMatchAfterSwap(board, a, b);
   await animateSwap(side, a, b, { invalid: !valid });
+  if (state !== match || match.finished) return false;
 
   if (!valid) {
     if (side === 'player') $('comboLabel').textContent = 'Essa troca não forma combinação.';
@@ -2042,6 +2109,7 @@ async function performSwap(side, a, b, { automated = false } = {}) {
   renderBoard(side);
   if (directSpecial) await resolveDirectSpecialSwap(side, a, b);
   else await resolveMatches(side, [b, a]);
+  if (state !== match || match.finished) return false;
 
   busy[side] = false;
   renderHud();
@@ -3090,6 +3158,7 @@ function clearDevPiece() {
 
 async function executeDevPiece() {
   if (!developerMode || !state) return;
+  const match = state;
   const { side, r, c } = devSelection();
   const board = boardData(side);
   const cell = board?.[r]?.[c];
@@ -3138,11 +3207,14 @@ async function executeDevPiece() {
 
   await showLineEffects(side, triggeredLineEffects(board, expanded.triggered));
   await showClear(side, expanded.clearSet, expanded.triggered);
+  if (state !== match || match.finished) return;
   clearBoardCells(board, expanded.clearSet);
   const movement = collapseBoard(board);
   renderBoard(side);
   await animateFalls(side, movement);
+  if (state !== match || match.finished) return;
   await resolveMatches(side, [], rewards);
+  if (state !== match || match.finished) return;
   finalizeCascadeRewards(side, rewards);
 
   busy[side] = false;

@@ -1,5 +1,5 @@
 // Estrutura adaptada do service worker do Buraco Findom.
-const CACHE_NAME = 'joias-findom-v23-power-audio';
+const CACHE_NAME = 'joias-findom-v29-shorter-move-pause';
 
 const ASSETS = [
   './',

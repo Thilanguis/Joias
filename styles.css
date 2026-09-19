@@ -206,6 +206,9 @@ select:focus { border-color: rgba(250,204,21,.55); box-shadow: 0 0 0 3px rgba(25
   contain: layout paint;
 }
 .rival-board.bot-controlled { pointer-events: none; }
+.board.celebrating-creation .gem:not(.moment-source) { opacity: .48; }
+.board .gem.moment-source { outline: 2px solid #ffe9a3; outline-offset: -2px; z-index: 3; }
+.board .gem.moment-target { box-shadow: 0 0 0 3px #bd88ff, 0 0 20px #d1a45b88; }
 .gem {
   aspect-ratio: 1;
   min-width: 0;

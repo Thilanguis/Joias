@@ -1,6 +1,38 @@
-# Joias Findom V23
+# Joias Findom V29
 
 Protótipo match-3 responsivo para celular, tablet e desktop.
+
+## V29 — pausa alinhada à fala
+
+- Extra Move reproduz até 1,35s do áudio original, preservando a fala (~1,2s) e sua cauda. Retirada somente a sobra silenciosa do fim. Pausa de aproximadamente 1,43s, incluindo os 80ms de preparação do áudio, em vez de 1,96s. Sem alterar velocidade, início da palavra, recompensas ou animações de queda.
+- Cache PWA `joias-findom-v29-shorter-move-pause`.
+
+## V28 — dois tiques originais
+
+- Relógio toca os primeiros 2,1s: inclui os dois tiques principais do arquivo (~0,7s e ~1,7s) e termina antes do terceiro (~2,7s). Volume, velocidade e envelope originais preservados, sem loop. Cache PWA `joias-findom-v28-two-ticks`.
+
+## V27 — relógio original
+
+- Relógio reproduz o MP3 original inteiro (aproximadamente 7,7s), em velocidade 1× e ganho 1, sem envelope de fade adicional nem loop. O arquivo foi conferido por SHA-256 contra o anexo original. Rival mantém o volume relativo de 35% e as prioridades do mixer continuam.
+- Cache PWA `joias-findom-v27-original-clock`.
+
+## V26 — tiques do relógio
+
+- O som de ativação do congelamento passou de 1,25s para 3,2s, permitindo ouvir mais tiques. Volume baixo, fade final e ausência de loop preservados. Cache PWA `joias-findom-v26-clock-ticks`.
+
+## V25 — destaque sem caixa e voz integral
+
+- Removida a caixa sobre o tabuleiro durante a criação de especiais. Pausa, contornos nas peças, som por criação e voo acumulado ao HUD continuam.
+- Extra Move começa do primeiro sample, com volume integral e 80ms de antecedência para preparar a saída e reduzir os sons comuns. Não usa fade de entrada/saída; outros poderes aguardam a palavra terminar em vez de interrompê-la. Sair/reiniciar ainda cancela o áudio normalmente.
+- Cache PWA `joias-findom-v25-clean-voice`. Testes verificam ausência da caixa, pausas, anúncios distintos e voz sem interrupção por ataques.
+
+## V24 — pausa na conquista do especial
+
+- Cada criação confirmada de seta, bomba ou Arco-íris destaca sua combinação antes da fusão/quebra/queda. O aviso fica na metade oposta do tabuleiro para deixar as peças de origem visíveis.
+- Em Turnos, cada especial anuncia `EXTRA MOVE!` e `+1 MOV.` com a voz. A pausa parte de 1,5s e acompanha a duração do áudio já carregado, limitada a 2,2s. Duas criações recebem dois anúncios distintos, inclusive na mesma etapa; o total acumulado continua voando ao HUD no fim, sem repetir a voz nem conceder movimentos duplicados.
+- Em Corrida, a criação mostra `JOIA ESPECIAL!`, o tipo e seu bônus de tempo por 1,1s, com o sparkle existente. O Arco-íris também recebe sparkle em Turnos. Matches comuns continuam sem essa pausa; regras de relógio, valores, somas, quebra/queda, poderes e voos são preservados.
+- Destaque por contorno, opacidade e escala, sem flashes/brightness/reflow forçado. Movimento reduzido mantém a pausa de leitura, sem zoom. Sair ou reiniciar durante o destaque descarta a resolução antiga.
+- Cache PWA atualizado para `joias-findom-v24-creation-moments`.
 
 ## V23 — áudio dos poderes
 
