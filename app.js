@@ -472,6 +472,10 @@ function runHudReward(laneId) {
 }
 
 function resetHudRewards() {
+  document.querySelectorAll(".bomb-impact").forEach(node => {
+    node.getAnimations({ subtree: true }).forEach(animation => animation.cancel());
+    node.remove();
+  });
   cancelAnimationFrame(energyFrame);
   energyFrame = null;
   energyFlights.forEach((flight) => flight.node.remove());
@@ -2282,12 +2286,7 @@ function renderHud() {
     const turns = state.format === "turns";
     const active = state.currentSide === side;
     setHudHidden($(side + "MovesMetric"), !turns);
-    setHudText(
-      $(side + "Moves"),
-      active
-        ? `${Math.max(0, state.movesLeft - heldHudAmount(side, "moves"))} MOV.`
-        : "— MOV.",
-    );
+    renderMoveDots(side, active, Math.max(0, state.movesLeft - heldHudAmount(side, "moves")));
     setHudText(
       $(side + "ClockLabel"),
       turns && !active ? "PRÓX. TURNO" : "TEMPO",
@@ -2295,6 +2294,39 @@ function renderHud() {
   }
 
   updatePanelStates();
+}
+
+function renderMoveDots(side, active, remaining) {
+  const node = $(side + "Moves");
+  const count = active ? Math.floor(remaining) : 0;
+  const round = `${state.currentRound}:${state.currentSide}`;
+  if (node._moveMatch !== state || node.dataset.round !== round) {
+    node._moveMatch = state;
+    node.dataset.round = round;
+    node._moveCapacity = state.movesPerTurn || 3;
+  }
+  node._moveCapacity = Math.max(node._moveCapacity, count);
+  const signature = `${active}:${count}:${node._moveCapacity}`;
+  if (node.dataset.dots === signature) return;
+  node.dataset.dots = signature;
+  node.classList.add("move-dots");
+  node.title = active ? `${count} movimentos restantes` : "Aguardando turno";
+  let label = node.querySelector(".sr-only");
+  if (!label) {
+    node.textContent = "";
+    label = document.createElement("span");
+    label.className = "sr-only";
+    node.append(label);
+  }
+  label.textContent = active ? `${count} MOV.` : "— MOV.";
+  const dots = [...node.querySelectorAll(".move-dot")];
+  for (let i = 0; i < node._moveCapacity; i += 1) {
+    const dot = dots[i] || document.createElement("i");
+    dot.className = `move-dot${i < count ? " available" : ""}`;
+    dot.setAttribute("aria-hidden", "true");
+    if (!dots[i]) node.append(dot);
+  }
+  dots.slice(node._moveCapacity).forEach(dot => dot.remove());
 }
 
 function updatePanelStates() {
@@ -2807,12 +2839,12 @@ async function showCreationMoments(side, creations, rewards) {
 
 function prepareBombImpact(side, triggered) {
   const root = boardRoot(side);
-  if (!root || document.hidden || root.classList.contains("offscreen")) return () => () => {};
+  if (!root || document.hidden) return () => {};
   const board = boardData(side);
   const bombs = [...triggered].map(parseKey).filter(({ r, c }) =>
     board[r]?.[c]?.special === "bomb",
   );
-  if (!bombs.length) return () => () => {};
+  if (!bombs.length) return () => {};
   const bounds = root.getBoundingClientRect();
   // Read all origins before inserting effects; the existing clear owns their lifetime.
   const origins = bombs.map(pos => getCellElement(side, pos)?.getBoundingClientRect()).filter(Boolean);
@@ -2826,7 +2858,7 @@ function prepareBombImpact(side, triggered) {
       impact.setAttribute("aria-hidden", "true");
       impact.style.left = `${rect.left - bounds.left - root.clientLeft + rect.width / 2}px`;
       impact.style.top = `${rect.top - bounds.top - root.clientTop + rect.height / 2}px`;
-      const radius = rect.width * 1.4;
+      const radius = rect.width * 1.7;
       const ring = document.createElement("i");
       ring.className = "bomb-impact-ring";
       ring.style.width = ring.style.height = `${radius * 2}px`;
@@ -2835,12 +2867,13 @@ function prepareBombImpact(side, triggered) {
       nodes.push(impact);
       if (!ring.animate) continue;
       animations.push(ring.animate(reduced
-        ? [{ opacity: .3 }, { opacity: 0 }]
+        ? [{ opacity: .55 }, { opacity: 0 }]
         : [
           { transform: "translate(-50%, -50%) scale(.18)", opacity: 0 },
-          { transform: "translate(-50%, -50%) scale(.48)", opacity: .65, offset: .22 },
+          { transform: "translate(-50%, -50%) scale(.48)", opacity: .95, offset: .18 },
+          { transform: "translate(-50%, -50%) scale(.8)", opacity: .7, offset: .55 },
           { transform: "translate(-50%, -50%) scale(1)", opacity: 0 },
-        ], { duration: ANIM.match, easing: "ease-out", fill: "forwards" }));
+        ], { duration: 620, easing: "ease-out", fill: "forwards" }));
       if (reduced) continue;
       for (let index = 0; index < 8; index += 1) {
         const spark = document.createElement("i");
@@ -2851,15 +2884,16 @@ function prepareBombImpact(side, triggered) {
         const y = Math.sin(angle) * radius;
         animations.push(spark.animate([
           { transform: "translate(-50%, -50%) scale(.4)", opacity: 0 },
-          { opacity: .8, offset: .16 },
+          { opacity: 1, offset: .16 },
           { transform: `translate(calc(-50% + ${x}px), calc(-50% + ${y}px)) scale(.15)`, opacity: 0 },
-        ], { duration: ANIM.match, easing: "cubic-bezier(.12,.65,.3,1)", fill: "forwards" }));
+        ], { duration: 540, easing: "cubic-bezier(.12,.65,.3,1)", fill: "forwards" }));
       }
     }
-    return () => {
+    // Finish over the falling pieces, without extending the board's clear pause.
+    void Promise.allSettled(animations.map(animation => animation.finished)).then(() => {
       animations.forEach(animation => animation.cancel());
       nodes.forEach(node => node.remove());
-    };
+    });
   };
 }
 
@@ -2877,16 +2911,12 @@ async function showClear(side, clearSet, triggered = new Set()) {
   }
   if (cells.length) await delay(ANIM.matchPrime);
   if (state !== match) return;
-  const cleanBombImpact = startBombImpact();
+  startBombImpact();
   for (const { el, triggered: isTriggered } of cells) {
     el.classList.remove("match-primed");
     el.classList.add(isTriggered ? "special-activated" : "matched");
   }
-  try {
-    await delay(ANIM.match);
-  } finally {
-    cleanBombImpact();
-  }
+  await delay(ANIM.match);
 }
 
 async function pulseCreatedSpecials(side, ids) {
