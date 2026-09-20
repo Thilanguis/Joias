@@ -532,6 +532,9 @@ select:focus { border-color: rgba(250,204,21,.55); box-shadow: 0 0 0 3px rgba(25
 @media (max-width: 520px) { .online-players { grid-template-columns: 1fr; } .online-room-line strong { font-size: 15px; } }
 
 
+.bomb-impact { position: absolute; width: 0; height: 0; z-index: 19; pointer-events: none; }
+.bomb-impact-ring { position: absolute; border-radius: 50%; border: 1.5px solid rgba(255,218,145,.7); background: radial-gradient(circle, transparent 35%, rgba(255,184,100,.13) 65%, rgba(255,219,159,.26) 72%, transparent 74%); box-shadow: 0 0 9px rgba(255,183,100,.22), inset 0 0 8px rgba(255,209,148,.18); transform: translate(-50%, -50%); opacity: 0; }
+.bomb-impact-spark { position: absolute; width: 5px; height: 5px; border-radius: 50%; background: #ffe3a8; box-shadow: 0 0 6px rgba(255,183,108,.6); opacity: 0; }
 .line-blast { position: absolute; z-index: 18; pointer-events: none; border-radius: 999px; opacity: 0; mix-blend-mode: screen; }
 .line-blast.row { height: 16px; background: linear-gradient(90deg, rgba(96,165,250,0), rgba(147,197,253,.95) 20%, rgba(255,255,255,.95) 50%, rgba(147,197,253,.95) 80%, rgba(96,165,250,0)); box-shadow: 0 0 20px rgba(147,197,253,.42); }
 .line-blast.col { width: 16px; background: linear-gradient(180deg, rgba(96,165,250,0), rgba(147,197,253,.95) 20%, rgba(255,255,255,.95) 50%, rgba(147,197,253,.95) 80%, rgba(96,165,250,0)); box-shadow: 0 0 20px rgba(147,197,253,.42); }

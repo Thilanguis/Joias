@@ -446,9 +446,9 @@ test('reward flights preserve gameplay and land before HUD updates', async (t) =
       await offlinePage.goto(`http://127.0.0.1:${server.address().port}/`);
       await offlinePage.evaluate(async()=>{await navigator.serviceWorker.ready;});
       await offlinePage.waitForFunction(()=>!!navigator.serviceWorker.controller);
-      assert.ok((await offlinePage.evaluate(()=>caches.keys())).includes('joias-findom-v30-polish'));
+      assert.ok((await offlinePage.evaluate(()=>caches.keys())).includes('joias-findom-v31-bomb-impact'));
       assert.equal(await offlinePage.evaluate(async()=>{
-        const cache=await caches.open('joias-findom-v30-polish');
+        const cache=await caches.open('joias-findom-v31-bomb-impact');
         return !!(await cache.match(new URL('./jewel-theme.css',location.href).href));
       }),true,'art direction is cached for offline play');
       await offlineContext.setOffline(true);
