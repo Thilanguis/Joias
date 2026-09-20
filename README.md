@@ -1,6 +1,39 @@
-# Joias Findom V30
+# Joias Findom V40
 
 Protótipo match-3 responsivo para celular, tablet e desktop.
+
+## V40 — Dev Tools
+
+- Painel por seções com lado selecionável: encerrar pelo placar atual, simular vitória/derrota/empate contra bot, trocar personagem offline, carregar/zerar especial, carregar e usar o poder real, ou ver somente a invocação sem gastar/aplicar nada. “Usar poder” continua respeitando turno, tempo, movimentos e bloqueio de cascata.
+- Recursos rápidos: +500 pontos-base (também carrega personagem), +30s, +3 movimentos em Turnos, +R$ 3,00, congelar 10s ou descongelar. Presets e execução de peças mantidos. Durante cascatas, edição fica bloqueada; não cria timers extras.
+- “Recolher” compacta o painel; ao usar/pré-visualizar o especial ele sai da frente da arte. O botão DEV reabre. Online publica somente alterações do próprio assento, mantém o personagem fixado na partida e permite encerrar somente com placar atual; simulações de resultado ficam no bot.
+- PWA v40. Testes dos controles reais, recursos, resultados, propriedade online e larguras 320/390/768: `node --test tests/dev-tools.cjs`.
+
+## V39 — invocação do especial
+
+- Ativar o especial mostra a arte inteira por 1,45s, com entrada lateral, aura, órbita, seis partículas e nome do poder. Prisma, Caos, Tempo e Demolidora têm tratamentos próprios. A apresentação acompanha o poder sem atrasar sua aplicação, gastar movimentos, pausar relógios ou bloquear toques.
+- A ativação local aparece mesmo com o tabuleiro fora da tela, usa prioridade sobre a apresentação rival e respeita os limites do viewport. Rival fora de tela mantém somente o pulso no HUD. Saída/reinício cancelam e removem todas as animações; movimento reduzido usa apenas fade de 1s. Nenhum timer ou loop permanente novo.
+- Mesmas artes em cache, versão PWA v39. Verificação adicional de ativação real, prioridade, limpeza e viewport: `node --test tests/character-invocation.cjs`.
+
+## V38 — artes dos personagens
+
+- As quatro ilustrações fornecidas estão nas cartas de seleção, retratos do HUD e animação de ativação. Cartas mostram a composição; retratos destacam o rosto por enquadramento CSS. Sem mudanças de habilidade, carga ou duração da animação.
+- `assets/characters/*.webp`: resolução original de 1086×1448, WebP qualidade 90, aproximadamente 1,6 MB no conjunto. Mesmos arquivos em todas as plataformas, nós de imagem reutilizados no HUD e fallback de emoji se o arquivo falhar. Cache PWA v38 inclui as quatro artes para uso offline.
+- Fontes: imagens “ChatGPT Image 20 de set. de 2026” enviadas pelo usuário: `01_06_56` → Demolidora; `01_07_06` → Rainha Prismática; `01_08_54` → Lorde do Caos; `01_10_16` → Senhora do Tempo. Apenas conversão de formato; originais preservados em Downloads.
+
+## V37 — leitura do HUD
+
+- Pontos com maior destaque; relógio com ícone e barra imediatamente abaixo. Dinheiro identificado por ícone e movimentos em área própria, somente nos Turnos. Congelamento e recompensas permanecem junto ao contador de destino; personagem e carga ficam na faixa inferior.
+- Layout explícito em `hud.css`, com regiões adaptadas ao celular e tablet. Mantidos os IDs usados pelos voos, acumuladores e atualizações de placar, sem novos timers ou alterações de regras. O cache PWA inclui o novo CSS.
+
+## V36 — personagens e PIX
+
+- Cada perfil escolhe nome, chave PIX e personagem. A carga usa os pontos-base já calculados pelo jogo **antes da Coroa**, limita em 100% e só é gasta por ativação manual (o bot usa no seu momento de decisão). Não gasta movimento; fica bloqueada durante cascatas, fora do turno, após acabar o tempo ou a partida. Não guarda excedente e o próprio especial/cascata não recarrega a habilidade. Outras regras das peças continuam iguais.
+- Balanceamento inicial, centralizado em `characters.js`: Rainha Prismática **1100** pontos-base → ativa um arco-íris; Lorde do Caos **500** → dois ataques (−6s na Corrida / −20s no próximo turno, respeitando 30s mínimos); Senhora do Tempo **850** → congela 10s e dá +3s na Corrida / +1 movimento nos Turnos; Demolidora **1000** → duas bombas 3×3. Em treino solo, o Lorde dá +6s. Custos maiores para as habilidades que limpam peças, acionam outros poderes e podem iniciar cascatas; são parâmetros iniciais para ajuste após partidas reais.
+- Perfil e PIX ficam fixados no snapshot de início da partida. Carga, usos e confirmação dos ataques são persistidos por jogador. Ataques do personagem usam contador cumulativo pertencente ao atacante, aplicado uma única vez pelo destinatário; repetir snapshot/reconectar não reaplica a penalidade. O lobby grava perfil/pronto por assento, sem substituir o perfil da outra pessoa.
+- `pix.js` é cópia **sem alterações** de `../Perfil/pix.js`: mesma normalização, dígitos verificadores de CPF/CNPJ, e-mail, telefone e chave aleatória. A cópia da chave usa o mesmo clipboard + textarea de `Perfil/app.js:copyPixText`. O cartão retoma o padrão do Perfil (recebedor, valor em destaque, chave selecionável, botão e retorno da cópia), com a paleta do Joias. Não gera pagamento, QR remoto ou transferência automática.
+- PIX é necessário para ficar pronto em uma sala com valor; há opção sem acerto. Solo e bots não pedem pagamento. O resultado mantém vitória por pontos e saldo incluindo bônus: quando os bônus invertem o saldo, mostra tanto o vencedor por pontos quanto o recebedor correto. Saldo zero não mostra PIX. Nenhuma chave inválida ganha botão de cópia.
+- PWA v36 inclui `characters.js` e `pix.js`, além de todos os sons/joias. Testes em Edge: `node --test tests/hud-rewards.cjs tests/polish.cjs tests/characters-pix.cjs tests/online-characters.cjs`. O teste online usa dois contextos isolados e um transporte Firestore simulado; não usa salas reais nem confirma regras publicadas do Firebase.
 
 ## V30 — polimento e performance
 

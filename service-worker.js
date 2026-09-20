@@ -1,13 +1,20 @@
 // Estrutura adaptada do service worker do Buraco Findom.
-const CACHE_NAME = 'joias-findom-v35-results';
+const CACHE_NAME = 'joias-findom-v40-dev-controls';
 
 const ASSETS = [
   './',
   './index.html',
   './app.js',
+  './characters.js',
+  './pix.js',
   './firebase.js',
   './styles.css',
   './jewel-theme.css',
+  './hud.css',
+  './assets/characters/prism.webp',
+  './assets/characters/chaos.webp',
+  './assets/characters/time.webp',
+  './assets/characters/demolition.webp',
   './gems.svg',
   './manifest.json',
   './manifest.webmanifest',

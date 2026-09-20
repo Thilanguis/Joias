@@ -10,6 +10,7 @@
   <link rel="apple-touch-icon" sizes="192x192" href="icon-192.png" />
   <link rel="stylesheet" href="styles.css" />
   <link rel="stylesheet" href="jewel-theme.css" />
+  <link rel="stylesheet" href="hud.css" />
 </head>
 <body>
   <main class="app-shell">
@@ -24,50 +25,16 @@
         </div>
 
         <div class="menu-card">
-          <section class="menu-section">
-            <div class="menu-section-head">
-              <span class="menu-section-icon" aria-hidden="true">⚔️</span>
-              <div><strong>Rival</strong></div>
+          <section class="menu-section profile-section">
+            <div class="menu-section-head"><span class="menu-section-icon" aria-hidden="true">💎</span><strong>Seu jogador</strong></div>
+            <div class="profile-fields">
+              <label class="control-field"><span>Nome</span><input id="playerNameInput" maxlength="18" placeholder="Seu nome" autocomplete="nickname" /></label>
+              <label class="control-field"><span>Chave PIX <small>para o acerto online</small></span><input id="playerPixInput" maxlength="100" placeholder="CPF, e-mail, telefone ou chave aleatória" autocomplete="off" spellcheck="false" aria-describedby="profileError" /></label>
             </div>
-            <label class="control-field">
-              <span class="sr-only">Escolher rival</span>
-              <select id="opponentSelect">
-                <option value="solo">Treino solo</option>
-                <option value="bot:luna">Luna — casual</option>
-                <option value="bot:jade" selected>Jade — equilibrada</option>
-                <option value="bot:ruby">Ruby — forte</option>
-                <option value="online">Convidar alguém — online</option>
-              </select>
-            </label>
-            <small id="opponentHelp" class="field-help"></small>
-
-            <div id="onlineLobby" class="online-lobby" hidden>
-              <div class="online-room-line">
-                <div><small>SALA</small><strong id="onlineRoomCode">------</strong></div>
-                <button id="copyRoomBtn" type="button" class="compact-button">Convidar jogador</button>
-              </div>
-              <label class="control-field">
-                <span>Quem é você?</span>
-                <select id="onlineSeatSelect">
-                  <option value="">Escolha seu jogador</option>
-                  <option value="0">Jogador 1</option>
-                  <option value="1">Jogador 2</option>
-                </select>
-              </label>
-              <div class="online-players">
-                <label class="online-player-card">
-                  <span><b>J1</b><i id="onlineReady0">aguardando</i></span>
-                  <input id="onlineName0" maxlength="18" value="Jogador 1" aria-label="Nome do jogador 1" />
-                </label>
-                <label class="online-player-card">
-                  <span><b>J2</b><i id="onlineReady1">aguardando</i></span>
-                  <input id="onlineName1" maxlength="18" value="Jogador 2" aria-label="Nome do jogador 2" />
-                </label>
-              </div>
-              <div id="onlineLobbyMessage" class="online-lobby-message">Compartilhe o link da sala com a outra pessoa.</div>
-            </div>
+            <p id="profileError" class="profile-error" role="status"></p>
+            <fieldset class="character-picker"><legend>Escolha seu personagem</legend><div id="characterChoices" class="character-choices"></div></fieldset>
+            <p id="characterHint" class="field-help"></p>
           </section>
-
           <section class="menu-section">
             <div class="menu-section-head">
               <span class="menu-section-icon" aria-hidden="true">🎮</span>
@@ -133,6 +100,7 @@
             <label class="control-field">
               <span class="sr-only">Conversão dos pontos</span>
               <select id="pointValueSelect">
+                <option value="0">Sem acerto em dinheiro</option>
                 <option value="0.005">100 pontos = R$ 0,50</option>
                 <option value="0.01" selected>100 pontos = R$ 1,00</option>
                 <option value="0.02">100 pontos = R$ 2,00</option>
@@ -140,6 +108,53 @@
               </select>
             </label>
             <div class="money-rule">No duelo, vale a <b>diferença dos totais</b>, incluindo os bônus.</div>
+          </section>
+
+          <section class="menu-section">
+            <div class="menu-section-head">
+              <span class="menu-section-icon" aria-hidden="true">⚔️</span>
+              <div><strong>Rival</strong></div>
+            </div>
+            <label class="control-field">
+              <span class="sr-only">Escolher rival</span>
+              <select id="opponentSelect">
+                <option value="solo">Treino solo</option>
+                <option value="bot:luna">Luna — casual</option>
+                <option value="bot:jade" selected>Jade — equilibrada</option>
+                <option value="bot:ruby">Ruby — forte</option>
+                <option value="online">Convidar alguém — online</option>
+              </select>
+            </label>
+            <small id="opponentHelp" class="field-help"></small>
+
+            <div id="onlineLobby" class="online-lobby" hidden>
+              <div class="room-join"><label class="control-field"><span>Entrar em uma sala</span><input id="joinRoomCode" maxlength="12" placeholder="Código da sala" autocapitalize="characters" /></label><button id="joinRoomBtn" type="button">Entrar</button></div>
+              <div class="online-room-line">
+                <div><small>SALA</small><strong id="onlineRoomCode">------</strong></div>
+                <button id="copyRoomBtn" type="button" class="compact-button">Convidar jogador</button>
+              </div>
+              <label class="control-field">
+                <span>Quem é você?</span>
+                <select id="onlineSeatSelect">
+                  <option value="">Escolha seu jogador</option>
+                  <option value="0">Jogador 1</option>
+                  <option value="1">Jogador 2</option>
+                </select>
+              </label>
+              <div class="online-players">
+                <label class="online-player-card">
+                  <span><b>J1</b><i id="onlineReady0">aguardando</i></span>
+                  <input readonly id="onlineName0" maxlength="18" value="Jogador 1" aria-label="Nome do jogador 1" />
+                  <small id="onlineCharacter0">Escolhendo personagem</small>
+                </label>
+                <label class="online-player-card">
+                  <span><b>J2</b><i id="onlineReady1">aguardando</i></span>
+                  <input readonly id="onlineName1" maxlength="18" value="Jogador 2" aria-label="Nome do jogador 2" />
+                  <small id="onlineCharacter1">Escolhendo personagem</small>
+                </label>
+              </div>
+              <div id="onlineLobbyMessage" class="online-lobby-message">Compartilhe o link da sala com a outra pessoa.</div>
+            </div>
           </section>
 
           <div class="menu-footer">
@@ -167,22 +182,21 @@
           </div>
           <div class="hud-clock-row">
             <div class="hud-metric clock-metric">
-              <span id="playerClockLabel" class="metric-label">TEMPO</span>
+              <span class="clock-heading"><span class="hud-clock-icon" aria-hidden="true"></span><span id="playerClockLabel" class="metric-label">TEMPO</span></span>
               <span id="playerClock" class="side-clock">60,0s</span>
-              <span id="playerClockReward" class="hud-reward" role="status" aria-atomic="true"></span>
-            </div>
-            <div id="playerMovesMetric" class="hud-metric moves-metric" hidden>
-              <span class="metric-label">MOVIMENTOS</span>
-              <b id="playerMoves">3 MOV.</b>
-              <span id="playerMovesReward" class="hud-reward" role="status" aria-atomic="true"></span>
+              <div id="playerTimeBar" class="time-track"><i id="playerTimeFill"></i></div>
+              <div class="clock-feedback"><span id="playerFreeze" class="freeze-status" aria-live="off"></span><span id="playerClockReward" class="hud-reward" role="status" aria-atomic="true"></span></div>
             </div>
           </div>
-          <div id="playerTimeBar" class="time-track"><i id="playerTimeFill"></i></div>
-          <span id="playerFreeze" class="freeze-status" aria-live="off"></span>
           <div class="hud-metric money-metric">
-            <span class="metric-label">DINHEIRO</span>
+            <span class="metric-label"><span class="hud-money-icon" aria-hidden="true">💰</span> DINHEIRO</span>
             <b id="playerMoney" class="side-money">R$ 0,00</b>
             <span id="playerMoneyReward" class="hud-reward" role="status" aria-atomic="true"></span>
+          </div>
+          <div id="playerMovesMetric" class="hud-metric moves-metric" hidden>
+            <span class="metric-label">MOVIMENTOS</span>
+            <b id="playerMoves">3 MOV.</b>
+            <span id="playerMovesReward" class="hud-reward" role="status" aria-atomic="true"></span>
           </div>
           <div class="effects-metric">
             <div id="playerCrownBoost" class="crown-boost" hidden>
@@ -191,6 +205,7 @@
             </div>
             <span id="playerCrownBoostTimeReward" class="hud-reward" role="status" aria-atomic="true"></span>
           </div>
+          <button id="playerSpecial" class="character-hud" type="button" disabled aria-label="Especial do personagem"><span id="playerCharacterIcon" class="character-avatar" aria-hidden="true"></span><span class="character-hud-copy"><b id="playerCharacterName"></b><span class="character-charge-track"><i id="playerCharacterFill"></i></span><small id="playerCharacterStatus"></small></span></button>
         </div>
         <div class="match-center">
           <small id="centerLabel">CORRIDA</small>
@@ -210,22 +225,21 @@
           </div>
           <div class="hud-clock-row">
             <div class="hud-metric clock-metric">
-              <span id="rivalClockLabel" class="metric-label">TEMPO</span>
+              <span class="clock-heading"><span class="hud-clock-icon" aria-hidden="true"></span><span id="rivalClockLabel" class="metric-label">TEMPO</span></span>
               <span id="rivalClock" class="side-clock">60,0s</span>
-              <span id="rivalClockReward" class="hud-reward" role="status" aria-atomic="true"></span>
-            </div>
-            <div id="rivalMovesMetric" class="hud-metric moves-metric" hidden>
-              <span class="metric-label">MOVIMENTOS</span>
-              <b id="rivalMoves">3 MOV.</b>
-              <span id="rivalMovesReward" class="hud-reward" role="status" aria-atomic="true"></span>
+              <div id="rivalTimeBar" class="time-track"><i id="rivalTimeFill"></i></div>
+              <div class="clock-feedback"><span id="rivalFreeze" class="freeze-status" aria-live="off"></span><span id="rivalClockReward" class="hud-reward" role="status" aria-atomic="true"></span></div>
             </div>
           </div>
-          <div id="rivalTimeBar" class="time-track"><i id="rivalTimeFill"></i></div>
-          <span id="rivalFreeze" class="freeze-status" aria-live="off"></span>
           <div class="hud-metric money-metric">
-            <span class="metric-label">DINHEIRO</span>
+            <span class="metric-label"><span class="hud-money-icon" aria-hidden="true">💰</span> DINHEIRO</span>
             <b id="rivalMoney" class="side-money">R$ 0,00</b>
             <span id="rivalMoneyReward" class="hud-reward" role="status" aria-atomic="true"></span>
+          </div>
+          <div id="rivalMovesMetric" class="hud-metric moves-metric" hidden>
+            <span class="metric-label">MOVIMENTOS</span>
+            <b id="rivalMoves">3 MOV.</b>
+            <span id="rivalMovesReward" class="hud-reward" role="status" aria-atomic="true"></span>
           </div>
           <div class="effects-metric">
             <div id="rivalCrownBoost" class="crown-boost" hidden>
@@ -234,12 +248,13 @@
             </div>
             <span id="rivalCrownBoostTimeReward" class="hud-reward" role="status" aria-atomic="true"></span>
           </div>
+          <button id="rivalSpecial" class="character-hud" type="button" disabled aria-label="Especial do personagem"><span id="rivalCharacterIcon" class="character-avatar" aria-hidden="true"></span><span class="character-hud-copy"><b id="rivalCharacterName"></b><span class="character-charge-track"><i id="rivalCharacterFill"></i></span><small id="rivalCharacterStatus"></small></span></button>
         </div>
       </header>
 
       <div class="status-row">
         <span id="comboLabel">Arraste uma joia para começar.</span>
-        <span id="devModeBadge" class="dev-mode-badge" hidden>DEV</span>
+        <button id="devModeBadge" type="button" class="dev-mode-badge" hidden aria-controls="devTools">DEV</button>
       </div>
 
       <div id="versusArena" class="versus-arena">
@@ -291,11 +306,34 @@
 
       <section id="devTools" class="dev-tools" hidden>
         <div class="dev-tools-head">
-          <div><strong>Dev Tools</strong><small>Use para montar peças sem depender do aleatório.</small></div>
-          <span class="dev-live">DEV</span>
+          <div><strong>Dev Tools</strong><small>Teste personagens, efeitos e resultados.</small></div>
+          <button id="devCollapseBtn" type="button" class="dev-live" aria-expanded="true" aria-controls="devBody">Recolher</button>
         </div>
+        <div id="devBody" class="dev-body">
+        <div id="devStatus" class="dev-status" role="status">Escolha o lado e uma ação. “Usar poder” carrega e ativa o especial.</div>
+        <label class="dev-side-control"><span class="dev-label">Aplicar em</span><select id="devSide"><option value="player">Você</option><option value="rival">Rival</option></select></label>
+        <details class="dev-section" open><summary>🏁 Final da partida</summary>
+          <div class="dev-character-select"><select id="devOutcome" aria-label="Resultado de teste"><option value="current">Manter placar atual</option><option value="win">Simular vitória sua</option><option value="lose">Simular vitória rival</option><option value="draw">Simular empate</option></select><button type="button" class="compact-button dev-finish" data-dev-action="finish">Terminar partida</button></div>
+        </details>
+        <details class="dev-section" open><summary>✨ Personagem</summary>
+          <div class="dev-character-select"><select id="devCharacter" aria-label="Personagem de teste"></select><button type="button" class="compact-button" data-dev-action="character">Aplicar</button></div>
+          <div class="dev-preset-grid">
+            <button type="button" class="dev-preset" data-dev-action="charge">Carga 100%</button>
+            <button type="button" class="dev-preset" data-dev-action="use">Usar poder</button>
+            <button type="button" class="dev-preset" data-dev-action="preview">Só animação</button>
+            <button type="button" class="dev-preset" data-dev-action="empty">Zerar carga</button>
+          </div>
+        </details>
+        <details class="dev-section"><summary>⚡ Recursos</summary><div class="dev-preset-grid">
+          <button type="button" class="dev-preset" data-dev-action="points">+500 pontos</button>
+          <button type="button" class="dev-preset" data-dev-action="time">+30s</button>
+          <button type="button" class="dev-preset" data-dev-action="moves">+3 movimentos</button>
+          <button type="button" class="dev-preset" data-dev-action="cash">+R$ 3,00</button>
+          <button type="button" class="dev-preset" data-dev-action="freeze">Congelar 10s</button>
+          <button type="button" class="dev-preset" data-dev-action="thaw">Descongelar</button>
+        </div></details>
+        <details class="dev-section"><summary>💎 Montar e executar peças</summary>
         <div class="dev-position-grid">
-          <label><span>Lado</span><select id="devSide"><option value="player">Você</option><option value="rival">Rival</option></select></label>
           <label><span>Linha</span><select id="devRow"></select></label>
           <label><span>Coluna</span><select id="devCol"></select></label>
           <label><span>Peça base</span><select id="devType"></select></label>
@@ -318,7 +356,8 @@
           <button id="devExecuteBtn" type="button" class="compact-button primary">Executar peça da casa</button>
           <button id="devClearBtn" type="button" class="compact-button">Limpar especial da casa</button>
         </div>
-        <div id="devStatus" class="dev-status">Selecione posição, crie a peça e use “Executar peça da casa”.</div>
+        </details>
+        </div>
       </section>
 
 
@@ -348,6 +387,7 @@
           <div class="result-breakdown"><b></b><b>Você</b><b id="calculationRivalName"></b><span>Pontos em R$</span><span id="playerPointsMoney"></span><span id="rivalPointsMoney"></span><span>Bônus 💸</span><span id="playerDirectMoney"></span><span id="rivalDirectMoney"></span></div>
           <p id="resultFormula"></p>
         </details>
+        <section id="resultPix" class="result-pix" hidden aria-labelledby="resultPixTitle"><div class="result-eyebrow">ACERTO VIA PIX</div><h3 id="resultPixTitle"></h3><strong id="resultPixAmount"></strong><p id="resultPixContext"></p><div id="resultPixKey" class="pix-key" tabindex="0"></div><button id="copyPixBtn" type="button">Copiar PIX</button><p id="pixCopyStatus" role="status"></p></section>
         <div id="resultDetail" class="result-detail"></div>
         <button id="againBtn" class="primary">JOGAR NOVAMENTE</button>
         <button id="menuBtn">VOLTAR AO MENU</button>
@@ -356,6 +396,7 @@
   </main>
 
   <div id="flightLayer" class="flight-layer" aria-hidden="true"></div>
+  <script src="pix.js"></script>
   <script type="module" src="app.js"></script>
 </body>
 </html>

@@ -446,13 +446,20 @@ test('reward flights preserve gameplay and land before HUD updates', async (t) =
       await offlinePage.goto(`http://127.0.0.1:${server.address().port}/`);
       await offlinePage.evaluate(async()=>{await navigator.serviceWorker.ready;});
       await offlinePage.waitForFunction(()=>!!navigator.serviceWorker.controller);
-      assert.ok((await offlinePage.evaluate(()=>caches.keys())).includes('joias-findom-v35-results'));
+      assert.ok((await offlinePage.evaluate(()=>caches.keys())).includes('joias-findom-v40-dev-controls'));
       assert.equal(await offlinePage.evaluate(async()=>{
-        const cache=await caches.open('joias-findom-v35-results');
-        return !!(await cache.match(new URL('./jewel-theme.css',location.href).href));
+        const cache=await caches.open('joias-findom-v40-dev-controls');
+        return (await Promise.all(['./jewel-theme.css','./hud.css'].map(file=>cache.match(new URL(file,location.href).href)))).every(Boolean);
       }),true,'art direction is cached for offline play');
       await offlineContext.setOffline(true);
       await offlinePage.reload();
+      assert.equal(await offlinePage.evaluate(()=>window.PixPayment.normalizeKey('529.982.247-25').valid),true,'shared PIX validator works offline');
+      assert.equal(await offlinePage.locator('[data-character]').count(),4,'character module is cached');
+      assert.equal(await offlinePage.evaluate(async()=>{
+        const images=[...document.querySelectorAll('.character-art img')];
+        await Promise.all(images.map(img=>img.decode()));
+        return images.length===4 && images.every(img=>img.naturalWidth===1086);
+      }),true,'all four original-resolution character artworks decode offline');
       assert.equal(await offlinePage.evaluate(async()=>{
         const response=await fetch('./gems.svg');
         const svg=new DOMParser().parseFromString(await response.text(),'image/svg+xml');

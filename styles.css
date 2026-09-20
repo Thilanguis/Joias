@@ -566,6 +566,25 @@ select:focus { border-color: rgba(250,204,21,.55); box-shadow: 0 0 0 3px rgba(25
 .dev-status { min-height: 18px; padding: 7px 9px; border-radius: 9px; background: rgba(0,0,0,.18); color: #a1a1aa; font-size: 9px; line-height: 1.35; }
 .dev-status.ok { color: #86efac; }
 .dev-status.error { color: #fca5a5; }
+.dev-body { display: grid; gap: 10px; }
+.dev-side-control { display: flex; align-items: center; gap: 12px; }
+.dev-side-control select { flex: 1; min-height: 40px; }
+.dev-section { border: 1px solid #a98cc333; border-radius: 10px; padding: 9px; background: #21192b55; }
+.dev-section > summary { cursor: pointer; font-size: 12px; font-weight: 800; color: #e7d4f1; min-height: 24px; }
+.dev-section[open] > summary { margin-bottom: 8px; }
+.dev-section .dev-preset-grid { grid-template-columns: repeat(4,minmax(0,1fr)); margin-top: 8px; }
+.dev-character-select { display: grid; grid-template-columns: minmax(0,1fr) auto; align-items: center; gap: 8px; }
+.dev-character-select select { min-height: 40px; }
+.dev-character-select button { min-height: 40px; padding: 8px 12px; font-size: 11px; }
+.dev-finish { color: #ffe0ca; border-color: #e6ad6770; background: #78442e44; }
+.dev-tools-head .dev-live { min-height: 34px; cursor: pointer; }
+.dev-tools:has(#devBody[hidden]) { width: min(280px,calc(100vw - 24px)); }
+.dev-tools .dev-position-grid { grid-template-columns: repeat(3,minmax(0,1fr)); }
+@media (max-width: 420px) {
+  .dev-character-select { grid-template-columns: minmax(0,1fr); }
+  .dev-section .dev-preset-grid { grid-template-columns: repeat(2,minmax(0,1fr)); }
+  .dev-tools { max-height: 52svh; }
+}
 @media (max-width: 720px) {
   .dev-position-grid { grid-template-columns: repeat(2, minmax(0,1fr)); }
   .dev-preset-grid { grid-template-columns: repeat(3, minmax(0,1fr)); }

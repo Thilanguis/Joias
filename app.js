@@ -1,3 +1,4 @@
+import { CHARACTERS, characterProfile } from './characters.js';
 const SIZE = 8;
 const GEM_TYPES = Object.freeze([
   { icon: "💎", name: "Diamante", slug: "diamante" },
@@ -472,7 +473,7 @@ function runHudReward(laneId) {
 }
 
 function resetHudRewards() {
-  document.querySelectorAll(".bomb-impact").forEach(node => {
+  document.querySelectorAll(".bomb-impact, .character-cast").forEach(node => {
     node.getAnimations({ subtree: true }).forEach(animation => animation.cancel());
     node.remove();
   });
@@ -743,6 +744,7 @@ let onlineSyncingMenu = false;
 let onlineCommitTimer = null;
 let onlineLastPublishedAt = 0;
 let onlineMatchStarted = false;
+let onlineStartingMatch = false;
 let db = null;
 let fbDoc = null;
 let fbGetDoc = null;
@@ -790,6 +792,7 @@ function delay(ms) {
 function renderDeveloperMode() {
   if ($("devTools")) $("devTools").hidden = !developerMode;
   if ($("devModeBadge")) $("devModeBadge").hidden = !developerMode;
+  syncDevCharacter();
 }
 
 function populateDevSelectors() {
@@ -807,6 +810,7 @@ function populateDevSelectors() {
   GEM_TYPES.forEach((gem, index) =>
     type.add(new Option(`${gem.icon} ${gem.name}`, String(index))),
   );
+  Object.entries(CHARACTERS).forEach(([id,hero]) => $('devCharacter').add(new Option(hero.name,id)));
 }
 
 function ensureMatchAudio() {
@@ -1781,7 +1785,7 @@ function sideName(side) {
       ? names[seat] || "Você"
       : names[1 - seat] || "Rival";
   }
-  if (side === "player") return "Você";
+  if (side === "player") return state?.playerProfile?.name || "Você";
   return BOT_PROFILES[state?.botProfile]?.name || "Rival";
 }
 
@@ -2202,6 +2206,294 @@ function canHumanInteract(side) {
   );
 }
 
+function menuProfile() {
+  return characterProfile({name: $('playerNameInput').value, pix: $('playerPixInput').value, character: $('characterChoices').dataset.selected});
+}
+
+function validateMenuProfile(required = false) {
+  const profile = menuProfile();
+  if ($('opponentSelect').value === 'online' && !$('playerNameInput').value.trim()) {
+    $('profileError').textContent = 'Informe seu nome antes de ficar pronto.';
+    $('playerNameInput').focus(); return null;
+  }
+  const checked = window.PixPayment.normalizeKey(profile.pix);
+  const error = !profile.pix && !required ? '' : !profile.pix ? 'Informe sua chave PIX para o acerto online.' : checked.valid ? '' : checked.error;
+  $('profileError').textContent = error;
+  $('playerPixInput').setAttribute('aria-invalid', String(!!error));
+  if (error) { $('playerPixInput').focus(); return null; }
+  if (checked.valid) { profile.pix = checked.key; $('playerPixInput').value = checked.key; }
+  return profile;
+}
+
+// Keep the decoded portrait node between HUD ticks and menu selection changes.
+// The emoji underneath remains a fallback if an asset cannot be loaded.
+function renderCharacterPortrait(root, character) {
+  if (root.dataset.art === character.art) return;
+  root.dataset.art = character.art;
+  root.textContent = character.icon;
+  const image = document.createElement('img');
+  image.className = 'character-image';
+  image.alt = ''; image.width = 1086; image.height = 1448;
+  image.decoding = 'async'; image.draggable = false;
+  image.addEventListener('error', () => image.remove(), {once: true});
+  image.src = character.art;
+  root.append(image);
+}
+
+function renderCharacterChoices() {
+  const root = $('characterChoices');
+  const format = $('formatSelect').value;
+  const selectedId = root.dataset.selected || 'prism';
+  root.dataset.selected = selectedId;
+  for (const [id, character] of Object.entries(CHARACTERS)) {
+    let button = root.querySelector('[data-character="' + id + '"]');
+    if (!button) {
+      button = document.createElement('button');
+      button.type = 'button'; button.dataset.character = id;
+      button.innerHTML = '<span class="character-art" aria-hidden="true"></span><span class="character-selected" aria-hidden="true">✓</span><b></b><small></small>';
+      button.style.setProperty('--hero-color', character.color);
+      renderCharacterPortrait(button.querySelector('.character-art'), character);
+      button.querySelector('b').textContent = character.name;
+      button.addEventListener('click', () => { root.dataset.selected = id; renderCharacterChoices(); void saveOwnOnlineProfile().catch(()=>setOnlineMessage('Não consegui salvar seu personagem. Tente novamente.','error')); });
+      root.append(button);
+    }
+    button.setAttribute('aria-pressed', String(id === selectedId));
+    button.querySelector('small').textContent = id === 'chaos' && $('opponentSelect').value === 'solo'
+      ? 'Sem rival: +6s na corrida.' : character[format];
+  }
+  $('characterHint').textContent = CHARACTERS[selectedId].charge + ' pontos-base para carregar · toque no personagem do HUD para usar.';
+}
+
+function newHero(profile, raw = {}) {
+  const id = characterProfile(profile).character;
+  const safe = value => Math.max(0, Number.isFinite(Number(value)) ? Number(value) : 0);
+  return { id, charge: Math.min(CHARACTERS[id].charge, safe(raw.charge)), uses: Math.floor(safe(raw.uses)),
+    attacksSent: Math.floor(safe(raw.attacksSent)), attacksSeen: Math.floor(safe(raw.attacksSeen)), active: false };
+}
+function chargeCharacter(side, basePoints) {
+  const hero = state?.[side + 'Hero'];
+  if (!hero || hero.active) return;
+  hero.charge = Math.min(CHARACTERS[hero.id].charge, hero.charge + Math.max(0, basePoints));
+}
+function canUseCharacter(side) {
+  if (!state || state.finished || busy[side] || (side === 'rival' && state.opponentType !== 'bot')) return false;
+  const hero = state[side + 'Hero'];
+  if (!hero || hero.active || hero.charge < CHARACTERS[hero.id].charge) return false;
+  return state.format === 'race' ? timeFor(side) > 0
+    : state.currentSide === side && state.movesLeft > 0 && state.turnTimeLeft > 0 && !state.turnEnding;
+}
+function renderCharacterHud(side) {
+  const hero = state[side + 'Hero'];
+  const button = $(side + 'Special');
+  if (!hero) { setHudHidden(button, true); return; }
+  setHudHidden(button, false);
+  const character = CHARACTERS[hero.id];
+  const percent = Math.min(100, Math.floor(hero.charge / character.charge * 100));
+  renderCharacterPortrait($(side + 'CharacterIcon'), character);
+  setHudText($(side + 'CharacterName'), character.name);
+  setHudText($(side + 'CharacterStatus'), hero.active ? 'ESPECIAL ATIVADO' : percent === 100 ? 'ESPECIAL PRONTO' : percent + '%');
+  const transform = 'scaleX(' + percent / 100 + ')';
+  const fill = $(side + 'CharacterFill');
+  if (fill.style.transform !== transform) fill.style.transform = transform;
+  if (button.style.getPropertyValue('--hero-color') !== character.color) button.style.setProperty('--hero-color', character.color);
+  button.classList.toggle('ready', percent === 100);
+  const disabled = side !== 'player' || !canUseCharacter(side);
+  if (button.disabled !== disabled) button.disabled = disabled;
+  const description = character.name + ': ' + percent + '% de carga. ' + character[state.format];
+  if (button.getAttribute('aria-label') !== description) button.setAttribute('aria-label', description);
+}
+function animateCharacterUse(side, preview = false) {
+  preview = preview && developerMode;
+  const button = $(side + 'Special');
+  const character = CHARACTERS[state?.[side + 'Hero']?.id];
+  if (!button || !character || document.hidden) return;
+  const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  button.getAnimations().forEach(a => a.cancel());
+  if (!reduced) button.animate([{transform:'scale(1)'},{transform:'scale(1.045)'},{transform:'scale(1)'}], {duration:520,easing:'ease-out'});
+  const board = boardRoot(side);
+  // A local activation is visible even when the player tapped the sticky HUD
+  // above an offscreen board. Rival presentations never compete with our own.
+  const previous = document.querySelector('.character-cast');
+  if (!preview && side === 'rival' && (board?.classList.contains('offscreen') || previous?.dataset.side === 'player')) return;
+  if (previous) {
+    previous.getAnimations({subtree:true}).forEach(animation => animation.cancel());
+    previous.remove();
+  }
+  // Read the layout once. CSS clamps the presentation on rotation/resize.
+  const rect = board?.getBoundingClientRect();
+  const hud = button.closest('.hud')?.getBoundingClientRect();
+  const top = Math.min(innerHeight * .5, Math.max(0, hud?.bottom || 0));
+  const x = innerWidth <= 720 ? innerWidth / 2 : rect ? rect.left + rect.width / 2 : innerWidth / 2;
+  const y = rect && rect.top < innerHeight && rect.bottom > top
+    ? Math.max(top, rect.top) + (Math.min(innerHeight, rect.bottom) - Math.max(top, rect.top)) / 2
+    : top + (innerHeight - top) / 2;
+  const cast = document.createElement('div');
+  cast.className = 'character-cast'; cast.dataset.side = side; cast.dataset.hero = state[side + 'Hero'].id;
+  cast.setAttribute('aria-hidden','true');
+  cast.style.setProperty('--hero-color', character.color);
+  cast.style.setProperty('--cast-x', x / innerWidth * 100 + 'vw');
+  cast.style.setProperty('--cast-y', y / innerHeight * 100 + 'svh');
+  cast.innerHTML = '<div class="cast-scene"><div class="cast-aura"></div><i class="cast-orbit"></i><div class="cast-art"></div><div class="cast-caption"><small></small><strong></strong><span></span></div></div>';
+  renderCharacterPortrait(cast.querySelector('.cast-art'), character);
+  cast.querySelector('small').textContent = preview ? 'PRÉVIA · SEM EFEITO NA PARTIDA' : side === 'player' ? 'SEU ESPECIAL' : 'ESPECIAL RIVAL';
+  cast.querySelector('strong').textContent = character.cast;
+  cast.querySelector('.cast-caption > span').textContent = character.name;
+  document.body.append(cast);
+  const scene = cast.firstElementChild;
+  const duration = reduced ? 1000 : 1450;
+  const direction = side === 'player' ? -1 : 1;
+  const frames = reduced
+    ? [{opacity:0},{opacity:1,offset:.15},{opacity:1,offset:.8},{opacity:0}]
+    : [{opacity:0,transform:`translate3d(${direction * 56}px,18px,0) rotate(${direction * 5}deg) scale(.9)`},
+       {opacity:1,transform:'translate3d(0,0,0) rotate(0deg) scale(1)',offset:.2},
+       {opacity:1,transform:'translate3d(0,-4px,0) rotate(0deg) scale(1.025)',offset:.74},
+       {opacity:0,transform:`translate3d(${-direction * 20}px,-18px,0) rotate(0deg) scale(1.06)`}];
+  if (!reduced) {
+    cast.querySelector('.cast-orbit').animate([{transform:'rotate(-24deg) scale(.85)',opacity:0},{opacity:.7,offset:.3},{transform:'rotate(16deg) scale(1.15)',opacity:0}],{duration,easing:'ease-out'});
+    for (let i=0; i<6; i++) {
+      const spark = document.createElement('i'); spark.className = 'cast-spark'; scene.append(spark);
+      const angle = (i / 6 * Math.PI * 2) - Math.PI / 2;
+      const dx = Math.cos(angle) * 140, dy = Math.sin(angle) * 180;
+      spark.animate([{opacity:0,transform:`translate(${dx * .5}px,${dy * .5}px) rotate(45deg) scale(.3)`},
+        {opacity:.85,offset:.25},{opacity:0,transform:`translate(${dx}px,${dy}px) rotate(110deg) scale(.7)`}],
+        {duration:1000,delay:100+i*35,easing:'ease-out',fill:'both'});
+    }
+  }
+  // Presentation runs alongside the existing effect; it never pauses a clock,
+  // waits before applying a power, or blocks input. Restart/screen exit cancels it.
+  const dispose = () => { cast.getAnimations({subtree:true}).forEach(animation => animation.cancel()); cast.remove(); };
+  scene.animate(frames,{duration,easing:'ease-out'}).finished.then(dispose,dispose);
+}
+
+async function resolveCharacterBoard(side, id) {
+  const match = state, board = boardData(side);
+  const normal = [];
+  board.forEach((row,r)=>row.forEach((cell,c)=>{ if (!cell.special && !cell.power) normal.push({r,c}); }));
+  const seeds = new Set();
+  const anchors = id === 'demolition' ? [{r:2,c:2},{r:5,c:5}] : [{r:3,c:3}];
+  for (const anchor of anchors) {
+    normal.sort((a,b)=>Math.abs(a.r-anchor.r)+Math.abs(a.c-anchor.c)-Math.abs(b.r-anchor.r)-Math.abs(b.c-anchor.c));
+    const pos = normal.shift();
+    if (pos) { board[pos.r][pos.c].special = id === 'demolition' ? 'bomb' : 'prism'; seeds.add(key(pos.r,pos.c)); }
+    else if (id === 'demolition') addArea(seeds,anchor,1);
+    else addColor(seeds,board,board[anchor.r][anchor.c].type);
+  }
+  renderBoard(side);
+  const plan = expandAllEffects(board,seeds), rewards = createCascadeRewards();
+  const origin = rewardOrigin(seeds);
+  if (plan.crownCount) activateCrownBoost(side,plan.crownCount,origin);
+  const points = plan.clearSet.size * 12 * crownMultiplierFor(side);
+  setScore(side,scoreFor(side)+points);
+  const money = plan.cashCount * DIRECT_CASH_BONUS;
+  if (money) addBonusMoney(side,money);
+  rewards.clockCount = plan.clockCount; rewards.devilCount = plan.devilCount;
+  collectCascadeFeedback(side,rewards,points,money,origin);
+  renderHud();
+  if (id === 'demolition') void playBombSound(side);
+  else void playPowerSound('crown',side,{spotlight:true});
+  await showLineEffects(side,triggeredLineEffects(board,plan.triggered));
+  if (state !== match || match.finished) return;
+  await showClear(side,plan.clearSet,plan.triggered);
+  if (state !== match || match.finished) return;
+  flushCascadeFeedback(side,rewards);
+  clearBoardCells(board,plan.clearSet);
+  const movement = collapseBoard(board);
+  clearBoardAnimationState(side); renderBoard(side);
+  await animateFalls(side,movement);
+  if (state !== match || match.finished) return;
+  await resolveMatches(side,[],rewards);
+  if (state === match && !match.finished) finalizeCascadeRewards(side,rewards);
+}
+
+function applyCharacterAttack(side, count = 2) {
+  const target = otherSide(side);
+  const before = state.format === 'race' ? timeFor(target) : turnPenaltyFor(target);
+  if (state.format === 'race') setTime(target,Math.max(0,before-count*DEVIL_RACE_PENALTY_SECONDS));
+  else setTurnPenalty(target,before+count*DEVIL_TURN_PENALTY_SECONDS);
+  const after = state.format === 'race' ? timeFor(target) : turnPenaltyFor(target);
+  const applied = Math.abs(after-before);
+  if (applied) recordPowerAudio('devil',side);
+  showDevilAttack(side,count*(state.format==='race'?DEVIL_RACE_PENALTY_SECONDS:DEVIL_TURN_PENALTY_SECONDS),applied);
+}
+async function useCharacter(side = 'player') {
+  if (!canUseCharacter(side)) return false;
+  const match = state, hero = state[side + 'Hero'];
+  hero.charge = 0; hero.uses += 1; hero.active = true;
+  busy[side] = true; selected[side] = null; renderHud(); animateCharacterUse(side);
+  try {
+    if (hero.id === 'prism' || hero.id === 'demolition') await resolveCharacterBoard(side,hero.id);
+    else if (hero.id === 'time') {
+      const rewards = createCascadeRewards(); rewards.clockCount = 1;
+      if (state.format === 'race') rewards.seconds = 3; else rewards.moves = 1;
+      finalizeCascadeRewards(side,rewards);
+    } else if (state.opponentType === 'solo') {
+      const rewards = createCascadeRewards(); rewards.seconds = 6; finalizeCascadeRewards(side,rewards);
+    } else if (state.opponentType === 'online') {
+      // The attacker owns this monotonically increasing ledger. The receiver
+      // applies it once; no opponent board or clock snapshot is overwritten.
+      hero.attacksSent += 2;
+      void playPowerSound('devil',side,{spotlight:true});
+    } else applyCharacterAttack(side);
+    return true;
+  } finally {
+    if (state === match) {
+      hero.active = false; busy[side] = false;
+      renderHud(); renderBoard(side);
+      if (!state.finished) await commitOnlinePlayerIfNeeded(side,
+        state.format === 'turns' && state.currentSide === side ? {"match.movesLeft":state.movesLeft} : {});
+    }
+  }
+}
+
+function receiveCharacterAttack(raw) {
+  if (!state?.playerHero || state.finished) return;
+  const sent = Math.max(0, Math.floor(Number(raw?.attacksSent) || 0));
+  const count = Math.max(0, sent - state.playerHero.attacksSeen);
+  if (!count) return;
+  state.playerHero.attacksSeen = sent;
+  applyCharacterAttack('rival',count);
+  // Persist acknowledgement even if the opponent repeats the same snapshot.
+  if (!busy.player) void commitOnlinePlayerIfNeeded('player');
+}
+
+function readyFlags(lobby) { return [!!lobby?.ready?.[0],!!lobby?.ready?.[1]]; }
+async function saveOwnOnlineProfile() {
+  if (typeof fbSetDoc !== 'function' || typeof fbDoc !== 'function') return;
+  if ($('opponentSelect').value !== 'online' || !Number.isInteger(onlineSeat) || !onlineRoomRef() || onlineSyncingMenu) return;
+  const profile = menuProfile();
+  await fbSetDoc(onlineRoomRef(), {lobby:{profiles:{[onlineSeat]:profile},ready:{[onlineSeat]:false}},updatedAt:Date.now()}, {merge:true});
+}
+function renderResultPix(result) {
+  const panel = $('resultPix'); panel.hidden = true; $('pixCopyStatus').textContent = '';
+  // Local bots and solo practice never request payment. The existing money
+  // delta (including bonuses), not the score winner alone, defines the receiver.
+  if (state.opponentType !== 'online' || result.moneyDelta === 0) return;
+  const side = result.moneyDelta > 0 ? 'player' : 'rival';
+  const profile = state[side + 'Profile'];
+  const checked = window.PixPayment.normalizeKey(profile?.pix);
+  panel.hidden = false;
+  $('resultPixTitle').textContent = 'Recebe: ' + sideName(side);
+  $('resultPixAmount').textContent = formatMoney(Math.abs(result.moneyDelta));
+  $('resultPixContext').textContent = 'Vencedor por pontos: ' + (result.draw ? 'empate' : sideName(result.won?'player':'rival')) + '. Acerto pela diferença dos totais.';
+  $('resultPixKey').textContent = checked.valid ? checked.key : 'Chave PIX não informada ou inválida.';
+  $('copyPixBtn').disabled = !checked.valid;
+  panel.dataset.key = checked.valid ? checked.key : '';
+}
+async function copyResultPix() {
+  const value = $('resultPix').dataset.key;
+  if (!value || $('resultPix').hidden) return;
+  // Same clipboard + textarea fallback as Perfil/app.js:copyPixText.
+  let copied = false;
+  try { await navigator.clipboard.writeText(value); copied = true; }
+  catch {
+    const helper = document.createElement('textarea'); helper.value = value;
+    helper.setAttribute('readonly',''); helper.style.position = 'fixed'; helper.style.opacity = '0';
+    document.body.append(helper); helper.select();
+    try { copied = document.execCommand('copy'); } catch {} finally { helper.remove(); }
+  }
+  $('pixCopyStatus').textContent = copied ? 'Chave PIX copiada.' : 'Não foi possível copiar automaticamente. Selecione a chave acima.';
+}
+
 function renderHud() {
   if (!state) return;
   animateScoreHud(
@@ -2216,6 +2508,8 @@ function renderHud() {
   renderFreezeStatus("rival");
   $("gameScreen").classList.toggle("solo-game", state.opponentType === "solo");
   renderTimeBars();
+  renderCharacterHud("player");
+  renderCharacterHud("rival");
 
   const hasRival = state.opponentType !== "solo";
   $("rivalHud").style.visibility = hasRival ? "visible" : "hidden";
@@ -3170,6 +3464,7 @@ async function resolveMatches(side, preferred = [], sharedRewards = null) {
     if (expanded.crownCount)
       activateCrownBoost(side, expanded.crownCount, origin);
     const crownMultiplier = crownMultiplierFor(side);
+    chargeCharacter(side, rawGained);
     const gained = Math.round(rawGained * crownMultiplier);
     total += gained;
     setScore(side, scoreFor(side) + gained);
@@ -3257,6 +3552,7 @@ async function resolveDirectSpecialSwap(side, a, b) {
 
   if (plan.crownCount) activateCrownBoost(side, plan.crownCount, origin);
   const crownMultiplier = crownMultiplierFor(side);
+  chargeCharacter(side, rawGained);
   const gained = rawGained * crownMultiplier;
   if (plan.crownCount) {
     const unit =
@@ -3388,6 +3684,7 @@ async function botMoveOnce(token) {
   )
     return false;
 
+  if (canUseCharacter('rival')) { await useCharacter('rival'); if (!state || state.finished || token !== botTurnToken) return false; }
   busy.rival = true;
   renderHud();
   const profile = BOT_PROFILES[state.botProfile] || BOT_PROFILES.jade;
@@ -3788,6 +4085,13 @@ function applyOnlineLobbyToMenu(lobby) {
   if (!lobby) return;
   onlineSyncingMenu = true;
   try {
+    const own = Number.isInteger(onlineSeat) ? lobby.profiles?.[onlineSeat] : null;
+    if (own && !$('playerNameInput').value && !$('playerPixInput').value
+      && !['playerNameInput','playerPixInput'].includes(document.activeElement?.id)) {
+      $('playerNameInput').value = own.name || '';
+      $('playerPixInput').value = own.pix || '';
+      $('characterChoices').dataset.selected = characterProfile(own).character;
+    }
     const config = lobby.config || {};
     if (config.format) $("formatSelect").value = config.format;
     if (config.duration) $("durationSelect").value = String(config.duration);
@@ -3796,13 +4100,16 @@ function applyOnlineLobbyToMenu(lobby) {
       $("movesSelect").value = String(config.movesPerTurn);
     if (config.pointValue != null)
       $("pointValueSelect").value = String(config.pointValue);
-    const names = lobby.names || ["Jogador 1", "Jogador 2"];
+    renderCharacterChoices();
+    const names = [lobby.profiles?.[0]?.name || lobby.names?.[0] || 'Jogador 1', lobby.profiles?.[1]?.name || lobby.names?.[1] || 'Jogador 2'];
     if (document.activeElement !== $("onlineName0"))
       $("onlineName0").value = names[0] || "Jogador 1";
     if (document.activeElement !== $("onlineName1"))
       $("onlineName1").value = names[1] || "Jogador 2";
-    const ready = lobby.ready || [false, false];
+    const ready = readyFlags(lobby);
     for (let i = 0; i < 2; i++) {
+      const chosen = lobby.profiles?.[i]?.character;
+      setHudText($('onlineCharacter' + i), CHARACTERS[chosen] ? CHARACTERS[chosen].icon + ' ' + CHARACTERS[chosen].name : 'Escolhendo personagem');
       const chip = $(`onlineReady${i}`);
       if (chip) {
         chip.textContent = ready[i] ? "pronto" : "aguardando";
@@ -3826,10 +4133,10 @@ async function pushOnlineLobby({ resetReady = false } = {}) {
   if (!ref || onlineSyncingMenu) return;
   const ready = resetReady
     ? [false, false]
-    : [...(onlineLobby?.ready || [false, false])];
+    : readyFlags(onlineLobby);
   const lobby = {
     names: currentOnlineNames(),
-    ready,
+    ready: {0: ready[0], 1: ready[1]},
     config: currentOnlineConfig(),
     updatedAt: Date.now(),
   };
@@ -3883,6 +4190,7 @@ function restoreBoard(board) {
 }
 
 async function startOnlineMatchAsHost() {
+  if (onlineStartingMatch) return;
   const ref = onlineRoomRef();
   if (
     !ref ||
@@ -3892,6 +4200,12 @@ async function startOnlineMatchAsHost() {
   )
     return;
   const config = onlineLobby.config || currentOnlineConfig();
+  for (const seat of [0,1]) {
+    const profile = onlineLobby.profiles?.[seat];
+    if (!profile || (Number(config.pointValue) > 0 && !window.PixPayment.normalizeKey(profile.pix).valid)) {
+      setOnlineMessage('Cada jogador deve confirmar nome, personagem e PIX válido antes de começar.', 'error'); return;
+    }
+  }
   const match = {
     status: "playing",
     matchId: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
@@ -3899,7 +4213,7 @@ async function startOnlineMatchAsHost() {
     duration: Number(config.duration || 60),
     rounds: Number(config.rounds || 3),
     movesPerTurn: Number(config.movesPerTurn || 3),
-    pointValue: Number(config.pointValue || DEFAULT_POINT_VALUE),
+    pointValue: Number(config.pointValue ?? DEFAULT_POINT_VALUE),
     currentSeat: 0,
     currentRound: 1,
     movesLeft: Number(config.movesPerTurn || 3),
@@ -3907,6 +4221,8 @@ async function startOnlineMatchAsHost() {
     startedAt: Date.now(),
     players: {
       0: {
+        profile: characterProfile(onlineLobby.profiles?.[0]),
+        hero: newHero(onlineLobby.profiles?.[0]),
         board: plainBoard(createBoard()),
         score: 0,
         bonusMoney: 0,
@@ -3919,6 +4235,8 @@ async function startOnlineMatchAsHost() {
         done: false,
       },
       1: {
+        profile: characterProfile(onlineLobby.profiles?.[1]),
+        hero: newHero(onlineLobby.profiles?.[1]),
         board: plainBoard(createBoard()),
         score: 0,
         bonusMoney: 0,
@@ -3932,7 +4250,9 @@ async function startOnlineMatchAsHost() {
       },
     },
   };
-  await fbUpdateDoc(ref, { match, updatedAt: Date.now() });
+  onlineStartingMatch = true;
+  try { await fbUpdateDoc(ref, { match, updatedAt: Date.now() }); }
+  finally { onlineStartingMatch = false; }
 }
 
 function startOnlineGameFromSnapshot(match, lobby) {
@@ -3943,8 +4263,11 @@ function startOnlineGameFromSnapshot(match, lobby) {
   const theirs =
     match.players[String(1 - onlineSeat)] || match.players[1 - onlineSeat];
   if (!mine || !theirs) return;
-  const names = lobby?.names || ["Jogador 1", "Jogador 2"];
+  const playerProfile = characterProfile(mine.profile || lobby?.profiles?.[onlineSeat]);
+  const rivalProfile = characterProfile(theirs.profile || lobby?.profiles?.[1-onlineSeat]);
+  const names = [match.players[0]?.profile?.name || lobby?.names?.[0] || 'Jogador 1', match.players[1]?.profile?.name || lobby?.names?.[1] || 'Jogador 2'];
   state = {
+    playerProfile, rivalProfile, playerHero: newHero(playerProfile,mine.hero), rivalHero: newHero(rivalProfile,theirs.hero),
     opponentType: "online",
     botProfile: "jade",
     onlineSeat,
@@ -3981,13 +4304,14 @@ function startOnlineGameFromSnapshot(match, lobby) {
     movesLeft: Number(match.movesLeft || match.movesPerTurn || 3),
     currentSide:
       Number(match.currentSeat || 0) === onlineSeat ? "player" : "rival",
-    pointValue: Number(match.pointValue || DEFAULT_POINT_VALUE),
+    pointValue: Number(match.pointValue ?? DEFAULT_POINT_VALUE),
     finished: false,
     startedAt: Number(match.startedAt || Date.now()),
     lastTickAt: performance.now(),
     external: false,
     context: null,
   };
+  receiveCharacterAttack(theirs.hero);
   onlineMatchStarted = true;
   resetScoreHud(state.playerScore, state.rivalScore);
   busy = { player: false, rival: false };
@@ -4034,7 +4358,7 @@ function syncOnlineGameFromSnapshot(match, lobby) {
       .join("|");
   const previousPlayerBoard = busy.player ? null : boardKey(state.board);
   const previousRivalBoard = boardKey(state.rivalBoard);
-  state.onlineNames = lobby?.names || state.onlineNames;
+  state.onlineNames = [match.players[0]?.profile?.name || lobby?.names?.[0] || state.onlineNames?.[0], match.players[1]?.profile?.name || lobby?.names?.[1] || state.onlineNames?.[1]];
   syncPowerAudio(theirs.powerAudioEvents);
   const previousRival = {
     score: state.rivalScore,
@@ -4066,6 +4390,9 @@ function syncOnlineGameFromSnapshot(match, lobby) {
     state.playerTurnPenalty = Number(
       mine.turnPenalty ?? state.playerTurnPenalty ?? 0,
     );
+    const seen = state.playerHero?.attacksSeen || 0;
+    state.playerHero = newHero(state.playerProfile,mine.hero);
+    state.playerHero.attacksSeen = Math.max(seen,state.playerHero.attacksSeen);
     state.onlineSeq = Number(mine.seq || 0);
   }
   if (state.format === "race") {
@@ -4088,6 +4415,10 @@ function syncOnlineGameFromSnapshot(match, lobby) {
     showDevilAttack("rival", turnPenaltyFor("player") - previousPenalty);
   }
 
+  const previousUses = state.rivalHero?.uses || 0;
+  state.rivalHero = newHero(state.rivalProfile,theirs.hero);
+  if (state.rivalHero.uses > previousUses) animateCharacterUse('rival');
+  receiveCharacterAttack(theirs.hero);
   state.rivalBoard = restoreBoard(theirs.board);
   state.rivalScore = Number(theirs.score || 0);
   state.rivalBonusMoney = Number(
@@ -4159,6 +4490,8 @@ async function commitOnlinePlayerIfNeeded(side = "player", extra = {}) {
   if (!ref) return;
   state.onlineSeq = Number(state.onlineSeq || 0) + 1;
   const payload = {
+    profile: state.playerProfile,
+    hero: {...state.playerHero, active:false},
     board: plainBoard(state.board),
     score: state.playerScore,
     bonusMoney: Math.round(bonusMoneyFor("player") * 100) / 100,
@@ -4237,20 +4570,14 @@ async function toggleOnlineReady() {
     );
     return;
   }
-  const ready = [...(onlineLobby?.ready || [false, false])];
+  const ready = readyFlags(onlineLobby);
+  const profile = validateMenuProfile(Number(currentOnlineConfig().pointValue)>0);
+  if (!profile && !ready[onlineSeat]) return;
   ready[onlineSeat] = !ready[onlineSeat];
-  const lobby = {
-    names: currentOnlineNames(),
-    ready,
-    config: currentOnlineConfig(),
-    updatedAt: Date.now(),
-  };
-  await fbSetDoc(ref, { lobby, updatedAt: Date.now() }, { merge: true });
-  try {
-    await fbUpdateDoc(ref, { "match.status": "idle", updatedAt: Date.now() });
-  } catch {}
-  if (ready.every(Boolean) && onlineSeat === 0)
-    setTimeout(() => startOnlineMatchAsHost().catch(console.error), 120);
+  await fbSetDoc(ref, {lobby:{profiles:{[onlineSeat]:profile || menuProfile()},ready:{[onlineSeat]:ready[onlineSeat]},config:currentOnlineConfig(),updatedAt:Date.now()},
+    ...(!onlineMatchStarted ? {match:{status:'idle'}} : {}), updatedAt:Date.now()}, {merge:true});
+  if (ready.every(Boolean) && onlineSeat === 0) void startOnlineMatchAsHost().catch(console.error);
+
 }
 
 function connectOnlineRoom() {
@@ -4295,7 +4622,8 @@ async function connectOnlineRoomOnce() {
     await fbSetDoc(ref, {
       lobby: {
         names: currentOnlineNames(),
-        ready: [false, false],
+        ready: {0:false,1:false},
+        profiles: {},
         config: currentOnlineConfig(),
         updatedAt: Date.now(),
       },
@@ -4309,7 +4637,7 @@ async function connectOnlineRoomOnce() {
       const data = snap.data();
       onlineLobby = data.lobby || onlineLobby;
       applyOnlineLobbyToMenu(onlineLobby);
-      const ready = onlineLobby?.ready || [false, false];
+      const ready = readyFlags(onlineLobby);
       if (ready.every(Boolean))
         setOnlineMessage("Os dois estão prontos. Iniciando…", "ok");
       else if (ready.some(Boolean))
@@ -4360,6 +4688,9 @@ function startGame(config = {}) {
       }
     : parseOpponent($("opponentSelect").value);
   if (opponent.opponentType === "online") return;
+  const playerProfile = config.profile || config.external ? characterProfile(config.profile) : validateMenuProfile(false);
+  if (!playerProfile) return;
+  const rivalProfile = characterProfile({name: BOT_PROFILES[opponent.botProfile]?.name, character: {luna:'time',jade:'demolition',ruby:'chaos'}[opponent.botProfile]});
   const format = config.format || $("formatSelect").value || "race";
   const duration = Math.max(
     15,
@@ -4381,6 +4712,7 @@ function startGame(config = {}) {
   );
 
   state = {
+    playerProfile, rivalProfile, playerHero: newHero(playerProfile), rivalHero: newHero(rivalProfile),
     opponentType: opponent.opponentType,
     botProfile: opponent.botProfile,
     format,
@@ -4528,6 +4860,7 @@ function finishGame() {
     ? "Corrida · " + state.duration + "s iniciais" + (hasRival ? " por jogador" : "")
     : "Por turnos · " + state.rounds + " rodadas";
 
+  renderResultPix(result);
   const revealResult = () => {
     resetScoreHud(state.playerScore, state.rivalScore);
     showScreen("resultScreen");
@@ -4539,7 +4872,7 @@ function finishGame() {
     const ref = onlineRoomRef();
     if (ref) {
       void fbUpdateDoc(ref, {
-        "lobby.ready": [false, false],
+        "lobby.ready": {0:false,1:false},
         "match.status": "finished",
         updatedAt: Date.now(),
       }).catch((error) =>
@@ -4628,6 +4961,7 @@ function bindBoardInput(side) {
 }
 
 function syncMenu(pushOnline = true) {
+  renderCharacterChoices();
   const format = $("formatSelect").value;
   const opponentValue = $("opponentSelect").value;
   const isSolo = opponentValue === "solo";
@@ -4707,6 +5041,99 @@ function setDevStatus(message, tone = "") {
   if (!node) return;
   node.textContent = message;
   node.className = `dev-status${tone ? ` ${tone}` : ""}`;
+  if(tone === 'error' && $('devTools')) $('devTools').scrollTop = 0;
+}
+
+function syncDevCharacter() {
+  const hero = state?.[devSelection().side + 'Hero'];
+  if (hero && $('devCharacter')) $('devCharacter').value = hero.id;
+}
+
+function collapseDevTools(collapsed) {
+  $('devBody').hidden = collapsed;
+  $('devCollapseBtn').textContent = collapsed ? 'Expandir' : 'Recolher';
+  $('devCollapseBtn').setAttribute('aria-expanded', String(!collapsed));
+}
+
+function canDevEdit(side) {
+  if (!developerMode) return false;
+  const error = !state || state.finished ? 'Inicie uma partida primeiro.'
+    : state.opponentType === 'online' && side !== 'player' ? 'Online: edite apenas o seu jogador neste aparelho.'
+    : state.opponentType === 'solo' && side === 'rival' ? 'O treino solo não tem rival.'
+    : devActionPending || busy[side] || state.turnEnding ? 'Espere a jogada atual terminar.' : '';
+  if (error) setDevStatus(error,'error');
+  return !error;
+}
+
+let devActionPending = false;
+async function runDevAction(action) {
+  const side = action === 'finish' ? 'player' : devSelection().side;
+  if (devActionPending || !canDevEdit(side)) return;
+  const match = state, hero = state[side + 'Hero'];
+  devActionPending = true;
+  try {
+    if (action === 'finish') {
+      if (busy.rival) return setDevStatus('Espere a jogada rival terminar.','error');
+      const outcome = $('devOutcome').value;
+      if (outcome !== 'current' && (state.opponentType === 'online' || state.opponentType === 'solo'))
+        return setDevStatus('Use “Manter placar atual” no online/solo. Simulações são para partidas contra bot.','error');
+      const high = Math.max(state.playerScore,state.rivalScore);
+      if (outcome === 'win') state.playerScore = high + 100;
+      if (outcome === 'lose') state.rivalScore = high + 100;
+      if (outcome === 'draw') state.playerScore = state.rivalScore = high;
+      await commitOnlinePlayerIfNeeded('player');
+      if (state !== match || match.finished) return;
+      resetHudRewards(); finishGame(); return;
+    }
+    if (action === 'character') {
+      if (state.opponentType === 'online') return setDevStatus('Online: o personagem é escolhido antes da partida. Você pode carregar e usar o atual.','error');
+      const id = $('devCharacter').value;
+      if (!Object.hasOwn(CHARACTERS,id)) return;
+      state[side+'Profile'] = {...state[side+'Profile'],character:id};
+      state[side+'Hero'] = newHero(state[side+'Profile']);
+      renderHud(); setDevStatus(CHARACTERS[id].name + ' aplicado. Carga zerada.','ok'); return;
+    }
+    if (action === 'preview') {
+      collapseDevTools(true); $('devTools').hidden=true; animateCharacterUse(side,true);
+      setDevStatus('Prévia visual; não gasta carga nem aplica o poder.','ok'); return;
+    }
+    if (action === 'use') {
+      const previousCharge = hero.charge;
+      hero.charge = CHARACTERS[hero.id].charge;
+      if (!canUseCharacter(side)) {
+        hero.charge = previousCharge;
+        return setDevStatus('Use no turno do lado escolhido, com tempo e movimentos disponíveis.','error');
+      }
+      unlockMatchAudio(); collapseDevTools(true); $('devTools').hidden=true;
+      await useCharacter(side);
+      if (state === match) setDevStatus('Especial aplicado; a carga voltou a zero.','ok');
+      return;
+    }
+    if ((action === 'time' || action === 'moves') && state.format === 'turns' && state.currentSide !== side)
+      return setDevStatus('Selecione o jogador que está no turno para alterar tempo/movimentos.','error');
+    if (action === 'moves' && state.format !== 'turns') return setDevStatus('Movimentos existem somente no modo Turnos.','error');
+    const feedback = {};
+    switch (action) {
+      case 'charge': hero.charge = CHARACTERS[hero.id].charge; break;
+      case 'empty': hero.charge = 0; break;
+      case 'points': setScore(side,scoreFor(side)+500); chargeCharacter(side,500); feedback.points=500; break;
+      case 'cash': addBonusMoney(side,3); feedback.money=3; recordPowerAudio('cash',side); break;
+      case 'time':
+        if (state.format === 'turns') state.turnTimeLeft += 30;
+        else { setTime(side,timeFor(side)+30); if(side==='player') state.onlineDonePublished=false; }
+        feedback.seconds=30; break;
+      case 'moves': state.movesLeft+=3; feedback.moves=3; recordPowerAudio('moves',side); break;
+      case 'freeze': addClockFreeze(side,1); recordPowerAudio('clock',side); break;
+      case 'thaw': setClockFreeze(side,0); break;
+      default: return;
+    }
+    showPlayFeedback(side,feedback); renderHud();
+    await commitOnlinePlayerIfNeeded(side, action==='moves' ? {'match.movesLeft':state.movesLeft} : {});
+    if (state === match) setDevStatus('Aplicado em '+sideName(side)+'.','ok');
+  } catch(error) {
+    console.error('[Dev Tools]',error);
+    if(state===match) setDevStatus('Não foi possível concluir a ação. Tente novamente.','error');
+  } finally { devActionPending=false; }
 }
 
 function placeDevPreset(preset) {
@@ -4716,6 +5143,7 @@ function placeDevPreset(preset) {
     return;
   }
   const { side, r, c, type } = devSelection();
+  if (!canDevEdit(side)) return;
   const board = boardData(side);
   const cell = board?.[r]?.[c];
   if (!cell) {
@@ -4761,11 +5189,13 @@ function placeDevPreset(preset) {
   if ($("comboLabel"))
     $("comboLabel").textContent =
       `DEV: ${label} criada. Agora você pode executar a peça.`;
+  void commitOnlinePlayerIfNeeded(side);
 }
 
 function clearDevPiece() {
   if (!developerMode || !state) return;
   const { side, r, c } = devSelection();
+  if (!canDevEdit(side)) return;
   const cell = boardData(side)?.[r]?.[c];
   if (!cell) return;
   cell.special = null;
@@ -4775,12 +5205,14 @@ function clearDevPiece() {
     `Linha ${r + 1}, coluna ${c + 1}: especial/poder removido.`,
     "ok",
   );
+  void commitOnlinePlayerIfNeeded(side);
 }
 
 async function executeDevPiece() {
   if (!developerMode || !state) return;
   const match = state;
   const { side, r, c } = devSelection();
+  if (!canDevEdit(side)) return;
   const board = boardData(side);
   const cell = board?.[r]?.[c];
   if (!cell) return setDevStatus("Casa inválida.", "error");
@@ -4808,6 +5240,7 @@ async function executeDevPiece() {
   if (expanded.crownCount)
     activateCrownBoost(side, expanded.crownCount, origin);
   const multiplier = crownMultiplierFor(side);
+  chargeCharacter(side, rawGained);
   const gained = Math.round(rawGained * multiplier);
   setScore(side, scoreFor(side) + gained);
 
@@ -4870,6 +5303,7 @@ async function executeDevPiece() {
     `Executado em ${side === "player" ? "você" : "rival"} · linha ${r + 1}, coluna ${c + 1}.`,
     "ok",
   );
+  await commitOnlinePlayerIfNeeded(side);
 }
 
 bindBoardInput("player");
@@ -4916,6 +5350,11 @@ $("onlineSeatSelect").addEventListener("change", () => {
       localStorage.setItem(`jewels_seat_${onlineRoomId}`, String(onlineSeat));
     else localStorage.removeItem(`jewels_seat_${onlineRoomId}`);
   }
+  const profile = onlineLobby?.profiles?.[onlineSeat];
+  if (profile) {
+    $('playerNameInput').value = profile.name || ''; $('playerPixInput').value = profile.pix || '';
+    $('characterChoices').dataset.selected = characterProfile(profile).character; renderCharacterChoices();
+  }
   const url = new URL(window.location.href);
   if (Number.isInteger(onlineSeat))
     url.searchParams.set("seat", String(onlineSeat));
@@ -4936,6 +5375,18 @@ $("onlineSeatSelect").addEventListener("change", () => {
   );
 });
 
+$('playerSpecial').addEventListener('click',()=>void useCharacter('player'));
+$('copyPixBtn').addEventListener('click',copyResultPix);
+for (const id of ['playerNameInput','playerPixInput']) $(id).addEventListener('change',()=>{
+  if (id === 'playerPixInput' && !validateMenuProfile(false)) return;
+  void saveOwnOnlineProfile().catch(()=>setOnlineMessage('Não consegui salvar seu perfil. Tente novamente.','error'));
+});
+$('joinRoomBtn').addEventListener('click',()=>{
+  const code = $('joinRoomCode').value.trim().toUpperCase();
+  if (!/^[A-Z0-9]{6,12}$/.test(code)) { setOnlineMessage('Informe o código da sala.','error'); return; }
+  const url = new URL(location.href); url.searchParams.set('game',code); url.searchParams.delete('seat');
+  location.assign(url.href);
+});
 $("copyRoomBtn").addEventListener("click", invitePlayer);
 
 const initialParams = new URLSearchParams(window.location.search);
@@ -4958,6 +5409,10 @@ $("devExecuteBtn")?.addEventListener("click", () => {
   void executeDevPiece();
 });
 $("devClearBtn")?.addEventListener("click", clearDevPiece);
+$('devSide').addEventListener('change',syncDevCharacter);
+$('devCollapseBtn').addEventListener('click',()=>collapseDevTools(!$('devBody').hidden));
+$('devModeBadge').addEventListener('click',()=>{ $('devTools').hidden=false; collapseDevTools(false); });
+document.querySelectorAll('[data-dev-action]').forEach(button=>button.addEventListener('click',()=>void runDevAction(button.dataset.devAction)));
 
 syncMenu(false);
 
@@ -4990,6 +5445,7 @@ $("againBtn").addEventListener("click", () => {
     rounds: state.rounds,
     movesPerTurn: state.movesPerTurn,
     pointValue: state.pointValue,
+    profile: state.playerProfile,
   });
 });
 $("menuBtn").addEventListener("click", () => {
