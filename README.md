@@ -1,6 +1,16 @@
-# Joias Findom V29
+# Joias Findom V30
 
 Protótipo match-3 responsivo para celular, tablet e desktop.
+
+## V30 — polimento e performance
+
+- Recompensas numéricas usam feixes curvos de luz, com sete segmentos por feixe e um único `requestAnimationFrame`. As parcelas chegam ao acumulador do destino; o placar principal recebe a soma ao terminar a jogada. Pontos/dinheiro partem após a quebra de cada etapa; tempo/movimentos também acumulam sem antecipar sua aplicação real. A última chegada leva 560ms, seguida de 160ms até começar a fusão. Nada disso bloqueia a resolução do tabuleiro. Coroa e ataques mantêm seus feedbacks específicos.
+- Tabuleiros reconciliam as peças por ID, preservando DOM, seleção e animações ociosas. Somente peças novas/alteradas são criadas. Animações finitas são liberadas depois da queda; leituras de geometria de fusão/raios acontecem antes das escritas. HUD não reescreve texto/atributos idênticos.
+- Medição em Edge headless, viewport 390×844 e CPU simulada 4× mais lenta: 100 renders idênticos do HUD passaram de **1.900 mutações para zero**; 20 renders do mesmo tabuleiro passaram de **1.280 nós adicionados e nenhuma peça reutilizada para zero nós adicionados e 64 peças reutilizadas**. O tempo da operação do tabuleiro caiu de aproximadamente 54ms para 10ms nessa medição. São medidas do trabalho de DOM, não uma promessa de FPS em aparelhos físicos. Reproduzir com `node tests/profile.cjs`.
+- `gems.svg` mantém as seis formas/cores reconhecíveis com luz, volume, reflexos e facetas consistentes, independente da fonte de emoji do aparelho. Mesmo SVG e efeitos em celular/tablet/desktop, sem perfil visual simplificado. Glow e efeitos permanecem; reflexo difuso usa gradiente em vez de um filtro por peça, sem forçar camadas de composição permanentes para as 128 peças. Só animações ociosas fora da tela/aba oculta são pausadas.
+- **Convidar jogador** abre o compartilhamento nativo com “Vem jogar Joias Findom comigo!” e o link da sala. Sem Web Share (ou caso falhe), copia o link; cancelar o painel nativo não copia nem abre outro diálogo. Se a área de transferência estiver indisponível, oferece cópia manual. O link não inclui assento ou Dev Tools. Conexões simultâneas ao lobby compartilham a mesma assinatura.
+- Menu com títulos curtos, resumo compacto e regras completas acessíveis em “Bônus e regras”. Cache PWA `joias-findom-v30-polish` inclui as joias vetoriais e os áudios atuais.
+- Verificação: `node --test tests/hud-rewards.cjs tests/polish.cjs` com Playwright instalado (`BROWSER_CHANNEL=msedge` para Edge). Cobertura de regras, voos/feixes, acumulação, reinício, áudio, Dev Tools, snapshots online simulados, compartilhamento com APIs simuladas, PWA offline e viewports 320/390/768/1024/1440px. Não envia convites nem usa salas reais do Firebase nos testes.
 
 ## V29 — pausa alinhada à fala
 

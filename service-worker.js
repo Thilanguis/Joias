@@ -1,5 +1,5 @@
 // Estrutura adaptada do service worker do Buraco Findom.
-const CACHE_NAME = 'joias-findom-v29-shorter-move-pause';
+const CACHE_NAME = 'joias-findom-v30-polish';
 
 const ASSETS = [
   './',
@@ -8,6 +8,7 @@ const ASSETS = [
   './firebase.js',
   './styles.css',
   './jewel-theme.css',
+  './gems.svg',
   './manifest.json',
   './manifest.webmanifest',
   './icon-192.png',

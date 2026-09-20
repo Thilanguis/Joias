@@ -20,7 +20,6 @@
           <div>
             <span class="eyebrow">FINDOM ARCADE</span>
             <h1 id="gameTitle">JOIAS FINDOM</h1>
-            <p>Escolha o rival, defina o ritmo e entre na disputa.</p>
           </div>
         </div>
 
@@ -28,7 +27,7 @@
           <section class="menu-section">
             <div class="menu-section-head">
               <span class="menu-section-icon" aria-hidden="true">⚔️</span>
-              <div><strong>Rival</strong><small>Quem vai disputar com você?</small></div>
+              <div><strong>Rival</strong></div>
             </div>
             <label class="control-field">
               <span class="sr-only">Escolher rival</span>
@@ -37,7 +36,7 @@
                 <option value="bot:luna">Luna — casual</option>
                 <option value="bot:jade" selected>Jade — equilibrada</option>
                 <option value="bot:ruby">Ruby — forte</option>
-                <option value="online">Pessoa — online (Firebase)</option>
+                <option value="online">Convidar alguém — online</option>
               </select>
             </label>
             <small id="opponentHelp" class="field-help"></small>
@@ -45,7 +44,7 @@
             <div id="onlineLobby" class="online-lobby" hidden>
               <div class="online-room-line">
                 <div><small>SALA</small><strong id="onlineRoomCode">------</strong></div>
-                <button id="copyRoomBtn" type="button" class="compact-button">COPIAR LINK</button>
+                <button id="copyRoomBtn" type="button" class="compact-button">Convidar jogador</button>
               </div>
               <label class="control-field">
                 <span>Quem é você?</span>
@@ -72,17 +71,17 @@
           <section class="menu-section">
             <div class="menu-section-head">
               <span class="menu-section-icon" aria-hidden="true">🎮</span>
-              <div><strong>Modo</strong><small>Como a partida vai funcionar?</small></div>
+              <div><strong>Modo</strong></div>
             </div>
             <div class="mode-picker" role="group" aria-label="Modo da partida">
               <button type="button" class="mode-option active" data-format="race" aria-pressed="true">
                 <span class="mode-icon" aria-hidden="true">⏱️</span>
-                <span class="mode-copy"><strong>Corrida</strong><small>Os dois jogam ao mesmo tempo</small></span>
+                <span class="mode-copy"><strong>Corrida</strong><small>Em tempo real</small></span>
                 <span class="mode-check" aria-hidden="true">✓</span>
               </button>
               <button type="button" class="mode-option" data-format="turns" aria-pressed="false">
                 <span class="mode-icon" aria-hidden="true">🎯</span>
-                <span class="mode-copy"><strong>Turnos</strong><small>Cada lado tem seus movimentos e 90s por vez</small></span>
+                <span class="mode-copy"><strong>Turnos</strong><small>90s por vez</small></span>
                 <span class="mode-check" aria-hidden="true">✓</span>
               </button>
             </div>
@@ -95,7 +94,7 @@
           <section class="menu-section">
             <div class="menu-section-head">
               <span class="menu-section-icon" aria-hidden="true">⚙️</span>
-              <div><strong>Configuração</strong><small id="configCaption">Defina o relógio inicial de cada lado.</small></div>
+              <div><strong>Ritmo</strong><small id="configCaption"></small></div>
             </div>
             <div class="config-grid">
               <label id="durationWrap" class="control-field">
@@ -123,16 +122,16 @@
                 </select>
               </label>
             </div>
-            <div id="formatHelp" class="format-help"></div>
+            <details class="menu-rules"><summary>Bônus e regras</summary><div id="formatHelp" class="format-help"></div></details>
           </section>
 
           <section class="menu-section stake-section">
             <div class="menu-section-head">
               <span class="menu-section-icon" aria-hidden="true">💸</span>
-              <div><strong>Valor dos pontos</strong><small>A grana nasce da pontuação, não de uma aposta fixa.</small></div>
+              <div><strong>Valor dos pontos</strong></div>
             </div>
             <label class="control-field">
-              <span>Conversão</span>
+              <span class="sr-only">Conversão dos pontos</span>
               <select id="pointValueSelect">
                 <option value="0.005">100 pontos = R$ 0,50</option>
                 <option value="0.01" selected>100 pontos = R$ 1,00</option>
@@ -140,7 +139,7 @@
                 <option value="0.05">100 pontos = R$ 5,00</option>
               </select>
             </label>
-            <div class="money-rule">No VS, o acerto final usa a <b>diferença de pontos</b>. Ex.: 900 × 700 = 200 pontos de diferença.</div>
+            <div class="money-rule">No duelo, vale a <b>diferença dos totais</b>, incluindo os bônus.</div>
           </section>
 
           <div class="menu-footer">

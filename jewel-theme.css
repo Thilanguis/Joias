@@ -393,7 +393,7 @@ body::after {
   border-radius: 20%;
 }
 .gem::after {
-  background: #fff2df30;
+  background: radial-gradient(ellipse, #fff2df45, #fff2df15 48%, transparent 75%);
 }
 .versus-mark {
   position: relative;

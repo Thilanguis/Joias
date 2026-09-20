@@ -1,0 +1,57 @@
+<svg xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <radialGradient id="amethyst" cx=".3" cy=".22" r=".84"><stop stop-color="#ecceff"/><stop offset=".3" stop-color="#b58bef"/><stop offset=".67" stop-color="#8150c9"/><stop offset="1" stop-color="#37205f"/></radialGradient>
+    <radialGradient id="jade" cx=".3" cy=".22" r=".84"><stop stop-color="#d4ffeb"/><stop offset=".3" stop-color="#7eebb9"/><stop offset=".67" stop-color="#36bf90"/><stop offset="1" stop-color="#105d51"/></radialGradient>
+    <linearGradient id="sun" x2=".3" y2="1"><stop stop-color="#fff7ad"/><stop offset=".34" stop-color="#ffe459"/><stop offset=".7" stop-color="#efba21"/><stop offset="1" stop-color="#976015"/></linearGradient>
+    <linearGradient id="fire" x2=".75" y2="1"><stop stop-color="#ffc298"/><stop offset=".4" stop-color="#ff925d"/><stop offset=".72" stop-color="#f66138"/><stop offset="1" stop-color="#b32e35"/></linearGradient>
+    <radialGradient id="ruby" cx=".3" cy=".2" r=".93"><stop stop-color="#ffb9d8"/><stop offset=".28" stop-color="#ff709e"/><stop offset=".63" stop-color="#ef286e"/><stop offset="1" stop-color="#7b195e"/></radialGradient>
+    <linearGradient id="ice" x2=".4" y2="1"><stop stop-color="#c1faff"/><stop offset=".4" stop-color="#55d3ff"/><stop offset="1" stop-color="#1454ae"/></linearGradient>
+    <linearGradient id="shine" x2=".4" y2="1"><stop stop-color="#fff" stop-opacity=".76"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></linearGradient>
+    <path id="heart" d="M32 17C22 2 6 9 7 24c1 13 14 25 25 32 11-7 24-19 25-32C58 9 42 2 32 17Z"/>
+    <path id="star" d="m32 5 8 16 18 3-13 13 3 19-16-9-16 9 3-19L6 24l18-3Z"/>
+  </defs>
+  <symbol id="roxo" viewBox="0 0 64 64">
+    <ellipse cx="32" cy="54" rx="23" ry="5" fill="#120d24" opacity=".35"/>
+    <circle cx="32" cy="31" r="25" fill="url(#amethyst)" stroke="#bc8beb" stroke-width="1"/>
+    <path d="M11 31C9 12 31 2 45 12 27 7 14 20 14 37Z" fill="url(#shine)"/>
+    <path d="M47 15c15 19-1 43-21 39 20 0 27-23 21-39Z" fill="#512578" opacity=".36"/>
+    <ellipse cx="23" cy="15" rx="7" ry="3" transform="rotate(-26 23 15)" fill="#fff" opacity=".38"/>
+  </symbol>
+  <symbol id="verde" viewBox="0 0 64 64">
+    <ellipse cx="32" cy="54" rx="23" ry="5" fill="#091f20" opacity=".35"/>
+    <circle cx="32" cy="31" r="25" fill="url(#jade)" stroke="#8cf1c6" stroke-width="1"/>
+    <path d="M11 31C9 12 31 2 45 12 27 7 14 20 14 37Z" fill="url(#shine)"/>
+    <path d="M47 15c15 19-1 43-21 39 20 0 27-23 21-39Z" fill="#126856" opacity=".35"/>
+    <ellipse cx="23" cy="15" rx="7" ry="3" transform="rotate(-26 23 15)" fill="#fff" opacity=".4"/>
+  </symbol>
+  <symbol id="laranja" viewBox="0 0 64 64">
+    <path d="m32 8 26 26-26 27L6 34Z" fill="#1e1126" opacity=".38"/>
+    <path d="M29 6q3-3 6 0l23 23q3 3 0 6L35 58q-3 3-6 0L6 35q-3-3 0-6Z" fill="url(#fire)" stroke="#ffb985" stroke-width="1"/>
+    <path d="m32 6 22 25-22-15L10 31Z" fill="#ffdec0" opacity=".6"/>
+    <path d="m10 31 22 17 22-17-22 25Z" fill="#a32e39" opacity=".4"/>
+    <path d="m32 16 17 16-17 16-17-16Z" fill="#ff885d" opacity=".4"/>
+    <path d="m14 27 16-17" stroke="#fff3ce" stroke-width="2" stroke-linecap="round" opacity=".65"/>
+  </symbol>
+  <symbol id="diamante" viewBox="0 0 64 64">
+    <path d="M16 14h32l13 16-29 31L3 30Z" fill="#0a162e" opacity=".4"/>
+    <path d="M16 10h32l13 16-29 32L3 26Z" fill="url(#ice)" stroke="#7ce8ff" stroke-linejoin="round"/>
+    <path d="m16 10 5 16 11-16 11 16 5-16M3 26h58" fill="none" stroke="#cff7ff" opacity=".68"/>
+    <path d="m3 26 18 0 11 32Z" fill="#1a9bd8"/><path d="m61 26-18 0-11 32Z" fill="#185fb3"/>
+    <path d="m21 26 11-16 11 16Z" fill="#d8faff"/><path d="m21 26 11 32 11-32Z" fill="#68ddff"/>
+    <path d="m8 24 10-11 10-1" fill="none" stroke="#fff" stroke-width="2" opacity=".7"/>
+  </symbol>
+  <symbol id="estrela" viewBox="0 0 64 64">
+    <use href="#star" transform="translate(0 3)" fill="#211528" opacity=".4"/>
+    <use href="#star" fill="url(#sun)" stroke="#fce98b" stroke-width="2" stroke-linejoin="round"/>
+    <path d="m32 9 4 15 17 2-17 7 8 18-12-11-12 11 8-18-17-7 17-2Z" fill="#fff494" opacity=".22"/>
+    <path d="m10 25 16-2 6-13" fill="none" stroke="#fffce0" stroke-width="2.5" stroke-linecap="round"/>
+    <path d="m45 39 2 14-15-9-14 8" fill="none" stroke="#ad791d" opacity=".45" stroke-width="2"/>
+  </symbol>
+  <symbol id="rubi" viewBox="0 0 64 64">
+    <use href="#heart" transform="translate(0 3)" fill="#240e2b" opacity=".4"/>
+    <use href="#heart" fill="url(#ruby)" stroke="#ff8cae" stroke-width="1"/>
+    <path d="M12 26c-2-15 12-16 16-6-8-8-13 0-13 9Z" fill="url(#shine)"/>
+    <path d="M36 21c7-15 20-9 16 3 0-10-12-9-16-3Z" fill="#ffd6e5" opacity=".38"/>
+    <path d="M51 31c-4 11-13 19-19 23l-6-5c12-4 20-11 25-18Z" fill="#a20d57" opacity=".42"/>
+  </symbol>
+</svg>

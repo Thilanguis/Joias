@@ -16,7 +16,7 @@ test('reward flights preserve gameplay and land before HUD updates', async (t) =
       if (!file.startsWith(root + path.sep)) { res.writeHead(403).end(); return; }
       let body = await fs.readFile(file);
       if (name === '/app.js') body += '\nwindow.__hudTest = (source) => eval(source);';
-      const type = { '.js': 'text/javascript', '.css': 'text/css', '.html': 'text/html', '.json': 'application/json', '.webmanifest': 'application/manifest+json' }[path.extname(file)];
+      const type = { '.js': 'text/javascript', '.svg': 'image/svg+xml', '.css': 'text/css', '.html': 'text/html', '.json': 'application/json', '.webmanifest': 'application/manifest+json' }[path.extname(file)];
       res.writeHead(200, { 'Content-Type': type || 'application/octet-stream' }).end(body);
     } catch { res.writeHead(404).end(); }
   });
@@ -35,56 +35,6 @@ test('reward flights preserve gameplay and land before HUD updates', async (t) =
   const text = (id) => page.locator('#' + id).textContent();
   const start = (format = 'race') => run(`startGame({opponentType:'bot',format:'${format}',duration:60}); stopTimers();`);
   const advance = (ms) => page.clock.runFor(ms);
-
-  await t.test('full flights read at the match, travel, hover, hit, then update on tablet and mobile', async () => {
-    for (const width of [768,390]) {
-      await page.setViewportSize({width,height:844});
-      await start();
-      await run("$('devTools').hidden=true;");
-      if(width===390) await page.evaluate(()=>window.scrollTo(0,500));
-      await run("state.playerTime+=4; showPlayFeedback('player',{seconds:4,origin:rewardOrigin([{r:4,c:3}])}); renderHud();");
-      const token=page.locator('.reward-flight[data-destination="playerClock"]');
-      const center=async(locator)=>{const box=await locator.boundingBox(); return {x:box.x+box.width/2,y:box.y+box.height/2};};
-      const shot=async(phase)=>{
-        if(!process.env.JOIAS_SCREENSHOT_DIR)return;
-        await fs.mkdir(process.env.JOIAS_SCREENSHOT_DIR,{recursive:true});
-        await page.screenshot({path:path.join(process.env.JOIAS_SCREENSHOT_DIR,`flight-${width}-${phase}.png`)});
-      };
-      await advance(150);
-      const source=await center(token);
-      const gem=await center(page.locator('#board .gem[data-r="4"][data-c="3"]'));
-      assert.ok(Math.hypot(source.x-gem.x,source.y-gem.y)<20,'starts at the matched region');
-      assert.equal(await token.getAttribute('data-phase'),'read');
-      await shot('read');
-      await advance(180);
-      assert.deepEqual(await center(token),source,'read pause does not drift');
-      await advance(370);
-      const halfway=await center(token);
-      const destination=await center(page.locator('#playerClock'));
-      assert.equal(await token.getAttribute('data-phase'),'travel');
-      assert.ok(Math.hypot(halfway.x-source.x,halfway.y-source.y)>70,'full board-to-HUD travel');
-      assert.ok(Math.hypot(halfway.x-destination.x,halfway.y-destination.y)>60);
-      assert.equal(await text('playerClock'),'60,0s');
-      await shot('travel');
-      await advance(320);
-      const hover=await center(token);
-      assert.equal(await token.getAttribute('data-phase'),'hover');
-      await advance(70);
-      assert.deepEqual(await center(token),hover,'pause just before arrival');
-      await advance(230);
-      assert.equal(await token.count(),0);
-      assert.equal(await text('playerClock'),'60,0s','impact precedes the visual increment');
-      assert.equal(await page.locator('#playerClockReward').evaluate(n=>n.classList.contains('visible')),true);
-      await shot('impact');
-      await advance(160);
-      assert.equal(await text('playerClock'),'64,0s');
-      await advance(700);
-      assert.equal(await run('rewardFlights.size'),0);
-      assert.equal(await text('playerClockReward'),'');
-      await page.evaluate(()=>window.scrollTo(0,0));
-    }
-    await page.setViewportSize({width:768,height:1024});
-  });
 
   await t.test('attack departs the attacker and flight geometry follows scroll and resize', async () => {
     await start();
@@ -107,23 +57,6 @@ test('reward flights preserve gameplay and land before HUD updates', async (t) =
     await page.setViewportSize({width:768,height:1024});
   });
 
-  await t.test('accumulated reward flights stay separated near the bottom of mobile', async () => {
-    await page.setViewportSize({width:390,height:844});
-    await start();
-    await run("$('devTools').hidden=true; state.playerScore=120; state.playerTime+=11; addBonusMoney('player',6); showPlayFeedback('player',{points:120,seconds:11,money:6,origin:rewardOrigin([{r:7,c:4}])}); renderHud();");
-    await advance(350);
-    const boxes=await page.locator('.reward-flight').evaluateAll(nodes=>nodes.map(n=>{const r=n.getBoundingClientRect();return {top:r.top,bottom:r.bottom,left:r.left,right:r.right};}));
-    assert.equal(boxes.length,3);
-    for(let i=0;i<boxes.length;i++) {
-      const a=boxes[i];
-      assert.ok(a.left>=0 && a.right<=390 && a.top>=0 && a.bottom<=844);
-      for(const b of boxes.slice(i+1)) assert.ok(a.bottom<=b.top || b.bottom<=a.top || a.right<=b.left || b.right<=a.left);
-    }
-    await start();
-    assert.equal(await page.locator('.reward-flight').count(),0);
-    await page.setViewportSize({width:768,height:1024});
-  });
-
   await t.test('cascade totals read first, real rules apply immediately, each destination releases separately', async () => {
     await start();
     await run(`window.batch = createCascadeRewards();
@@ -137,7 +70,7 @@ test('reward flights preserve gameplay and land before HUD updates', async (t) =
     assert.deepEqual(await run('[state.playerScore,state.playerTime,state.playerBonusMoney,state.playerClockFreeze,state.rivalTime]'), [320,71,6,20,58]);
     assert.equal(await text('playerClock'), '60,0s');
     assert.equal(await text('rivalClock'), '60,0s');
-    await advance(600);
+    await advance(700);
     assert.equal(await text('playerScoreReward'), '+320');
     assert.equal(await text('playerClockReward'), '+11s');
     assert.equal(await text('playerMoneyReward'), '+R$ 6,00');
@@ -198,7 +131,7 @@ test('reward flights preserve gameplay and land before HUD updates', async (t) =
     assert.equal(await text('playerClock'), '60,0s');
     assert.equal(await text('rivalClock'), '60,0s');
     await advance(1300);
-    assert.equal(await text('playerClock'), '64,0s');
+    assert.equal(await text('playerClock'), '62,0s');
     await advance(2900);
     assert.equal(await text('playerClock'), '62,0s');
     assert.equal(await text('rivalClock'), '66,0s');
@@ -213,7 +146,7 @@ test('reward flights preserve gameplay and land before HUD updates', async (t) =
         1:{board:plainBoard(state.rivalBoard),score:120,bonusMoney:3,time:64,crownBoost:8,crownLevel:1,seq:1}
       }};
       window.moneyNode=$('moneyLeadValue'); window.rivalGem=$('rivalBoard').firstChild; syncOnlineGameFromSnapshot(snapshot,{});`);
-    await advance(400);
+    await advance(700);
     assert.equal(await text('rivalScoreReward'), '+120');
     assert.equal(await text('rivalMoneyReward'), '+R$ 3,00');
     assert.equal(await text('rivalClockReward'), '+4s');
@@ -225,9 +158,9 @@ test('reward flights preserve gameplay and land before HUD updates', async (t) =
     assert.equal(await text('rivalMoney'), 'R$ 4,20');
     assert.equal(await run('hudHolds.size'), 0);
     await run("for(let i=0;i<4;i++){ state.rivalScore+=10; showPlayFeedback('rival',{points:10}); } renderHud();");
-    assert.equal(await run("hudLanes.get('rivalScoreReward').length"),2);
-    await advance(2300);
-    assert.equal(await text('rivalScoreReward'),'+30');
+    assert.equal(await run('energyBatches.size'),4);
+    await advance(600);
+    assert.equal(await text('rivalScoreReward'),'+40');
     await advance(2200);
     assert.equal(await text('rivalScore'),'160');
     assert.equal(await run('hudHolds.size'),0);
@@ -371,7 +304,7 @@ test('reward flights preserve gameplay and land before HUD updates', async (t) =
     assert.equal(await text('playerScoreReward'), '');
     await run("setScore('player',120); showPlayFeedback('player',{points:120}); finishGame();");
     assert.equal(await run('state.finished'), true);
-    await advance(300);
+    await advance(600);
     assert.equal(await page.locator('#gameScreen').isVisible(), true);
     assert.equal(await text('playerScoreReward'), '+120');
     await advance(2100);
@@ -513,13 +446,18 @@ test('reward flights preserve gameplay and land before HUD updates', async (t) =
       await offlinePage.goto(`http://127.0.0.1:${server.address().port}/`);
       await offlinePage.evaluate(async()=>{await navigator.serviceWorker.ready;});
       await offlinePage.waitForFunction(()=>!!navigator.serviceWorker.controller);
-      assert.ok((await offlinePage.evaluate(()=>caches.keys())).includes('joias-findom-v29-shorter-move-pause'));
+      assert.ok((await offlinePage.evaluate(()=>caches.keys())).includes('joias-findom-v30-polish'));
       assert.equal(await offlinePage.evaluate(async()=>{
-        const cache=await caches.open('joias-findom-v29-shorter-move-pause');
+        const cache=await caches.open('joias-findom-v30-polish');
         return !!(await cache.match(new URL('./jewel-theme.css',location.href).href));
       }),true,'art direction is cached for offline play');
       await offlineContext.setOffline(true);
       await offlinePage.reload();
+      assert.equal(await offlinePage.evaluate(async()=>{
+        const response=await fetch('./gems.svg');
+        const svg=new DOMParser().parseFromString(await response.text(),'image/svg+xml');
+        return response.ok && svg.querySelectorAll('symbol').length===6;
+      }),true,'all six vector jewels are available offline');
       assert.equal(await offlinePage.title(),'Joias Findom');
       await offlinePage.locator('#opponentSelect').selectOption('solo');
       await offlinePage.locator('#startBtn').click();
