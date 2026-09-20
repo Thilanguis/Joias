@@ -143,7 +143,7 @@ select:focus { border-color: rgba(250,204,21,.55); box-shadow: 0 0 0 3px rgba(25
 .hud-clock-row { display: flex; gap: 8px; }
 .hud-clock-row > .hud-metric { flex: 1; grid-template-columns: minmax(0, 1fr); }
 .clock-metric .hud-reward, .moves-metric .hud-reward { height: 18px; line-height: 18px; white-space: nowrap; font-size: 13px; }
-.clock-metric .hud-reward.attack { font-size: 11px; }
+.clock-metric .hud-reward.attack { font-size: 11px; white-space: normal; height: auto; min-height: 18px; line-height: 1.15; }
 .clock-metric .hud-reward.combined-reward { font-size: 10px; line-height: 10px; white-space: normal; }
 .moves-metric b { color: #c4b5fd; font-size: 15px; font-variant-numeric: tabular-nums; }
 .moves-metric .move-dots { display: flex; flex-wrap: wrap; justify-content: center; align-content: center; gap: 5px; max-width: 110px; min-height: 22px; margin: 0 auto; }

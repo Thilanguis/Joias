@@ -77,7 +77,7 @@ const CROWN_STEP_SECONDS = 2;
 const CROWN_BASE_MOVES = 2;
 const DIRECT_CASH_BONUS = 3;
 const CLOCK_FREEZE_SECONDS = 10;
-const DEVIL_RACE_PENALTY_SECONDS = 2;
+const DEVIL_RACE_PENALTY_SECONDS = 3;
 const DEVIL_TURN_PENALTY_SECONDS = 10;
 const TURN_SECONDS = 90;
 const MIN_TURN_SECONDS = 30;
@@ -1976,6 +1976,9 @@ function renderFreezeStatus(side) {
     state.format === "turns" && state.currentSide !== side
       ? 0
       : clockFreezeFor(side);
+  const bar = $(side + "TimeBar");
+  if (bar.classList.contains("is-frozen") !== (remaining > 0))
+    bar.classList.toggle("is-frozen", remaining > 0);
   if (remaining > 0) {
     setHudText(node, "⏸ CONGELADO · " + formatSeconds(remaining));
     node.classList.add("active");
@@ -2797,6 +2800,12 @@ async function showCreationMoments(side, creations, rewards) {
   const match = state;
   const root = boardRoot(side);
   if (!root || !match) return;
+  // A race grants time, not moves. Keep jewel formation and sparkle, but do not
+  // stop a running clock for the turn-mode announcement.
+  if (match.format === "race") {
+    void playPowerSound("crown", side, { distinct: true });
+    return;
+  }
   try {
     for (const creation of creations) {
       if (state !== match || match.finished) return;
@@ -4481,47 +4490,43 @@ function finishGame() {
   $("finalPlayer").textContent = result.playerScore.toLocaleString("pt-BR");
   $("finalRival").textContent = result.opponentScore.toLocaleString("pt-BR");
   $("finalRivalName").textContent = rivalName.toUpperCase();
-  $("finalRivalWrap").style.display = hasRival ? "" : "none";
+  $("finalRivalWrap").hidden = !hasRival;
+  $("resultScores").classList.toggle("solo", !hasRival);
+  $("finalPlayerWrap").classList.toggle("winner", hasRival && result.won);
+  $("finalRivalWrap").classList.toggle("winner", hasRival && !result.won && !result.draw);
+  $("finalPlayerMoney").textContent = formatMoney(result.playerMoney);
+  $("finalRivalMoney").textContent = formatMoney(result.opponentMoney);
 
-  if (!hasRival) {
-    $("resultIcon").textContent = "💎";
-    $("resultTitle").textContent =
-      state.format === "race" ? "TEMPO ESGOTADO" : "DESAFIO CONCLUÍDO";
-    $("resultText").textContent =
-      `Você marcou ${result.playerScore.toLocaleString("pt-BR")} pontos.`;
-  } else if (result.draw) {
-    $("resultIcon").textContent = "🤝";
-    $("resultTitle").textContent = "EMPATE";
-    $("resultText").textContent = "A diferença de pontos ficou zerada.";
-  } else if (result.won) {
-    $("resultIcon").textContent = "🏆";
-    $("resultTitle").textContent = "VOCÊ VENCEU";
-    $("resultText").textContent =
-      `Você terminou com mais pontos que ${rivalName}.`;
-  } else {
-    $("resultIcon").textContent = "💸";
-    $("resultTitle").textContent = `${rivalName.toUpperCase()} VENCEU`;
-    $("resultText").textContent = `${rivalName} terminou com mais pontos.`;
-  }
-
-  const rateText = `100 pts = ${formatMoney(result.pointValue * 100)}`;
-  $("resultDetail").textContent =
-    state.format === "race"
-      ? `Tempo inicial: ${state.duration}s por jogador · ${rateText}.`
-      : `${state.rounds} rodadas · ${state.movesPerTurn} movimentos por lado · ${rateText}.`;
+  $("resultIcon").textContent = !hasRival ? "💎" : result.draw ? "◆" : "🏆";
+  $("resultTitle").textContent = !hasRival ? "Partida concluída" : result.draw ? "Empate!" : result.won ? "Você venceu!" : rivalName + " venceu";
+  $("resultText").textContent = !hasRival ? "Cada combinação valeu a pena." : result.draw
+    ? "Vocês terminaram com a mesma pontuação."
+    : Math.abs(result.scoreDifference).toLocaleString("pt-BR") + " pontos de vantagem " + (result.won ? "para você." : "para " + rivalName + ".");
 
   const money = $("moneyResult");
-  money.className = "money-result";
-  if (!hasRival) {
-    money.textContent = `${result.playerScore.toLocaleString("pt-BR")} pts · ${rateText} · total ${formatMoney(result.playerMoney)}${result.playerBonusMoney ? ` · bônus ${formatMoney(result.playerBonusMoney)}` : ""}`;
-    money.classList.add("win");
-  } else if (result.draw) {
-    money.textContent = `Diferença 0 pts · acerto ${formatMoney(0)}`;
-  } else {
-    const absDiff = Math.abs(result.scoreDifference);
-    money.textContent = `${absDiff.toLocaleString("pt-BR")} pts de diferença · ${rateText} · ${result.moneyDelta > 0 ? "+" : "-"}${formatMoney(Math.abs(result.moneyDelta))}${result.playerBonusMoney || result.opponentBonusMoney ? ` · bônus diretos você ${formatMoney(result.playerBonusMoney)} / rival ${formatMoney(result.opponentBonusMoney)}` : ""}`;
-    money.classList.add(result.moneyDelta > 0 ? "win" : "lose");
-  }
+  const delta = result.moneyDelta;
+  money.className = "money-result" + (delta > 0 ? " win" : delta < 0 ? " lose" : "");
+  money.textContent = (hasRival && delta !== 0 ? (delta > 0 ? "+" : "−") : "") + formatMoney(Math.abs(delta));
+  $("moneyResultLabel").textContent = hasRival ? "SEU SALDO NA PARTIDA" : "TOTAL GERADO";
+  $("moneyResultHint").textContent = !hasRival ? "Seus pontos + bônus de dinheiro."
+    : delta === 0 ? "Os totais em dinheiro ficaram iguais."
+    : delta > 0 ? "Seu total ficou acima do total de " + rivalName + "."
+    : "Seu total ficou abaixo do total de " + rivalName + ".";
+
+  $("resultCalculation").open = false;
+  $("resultCalculation").classList.toggle("solo", !hasRival);
+  $("resultRate").textContent = "100 pontos = " + formatMoney(result.pointValue * 100);
+  $("calculationRivalName").textContent = rivalName;
+  $("playerPointsMoney").textContent = formatMoney(scoreMoney(result.playerScore));
+  $("rivalPointsMoney").textContent = formatMoney(scoreMoney(result.opponentScore));
+  $("playerDirectMoney").textContent = formatMoney(result.playerBonusMoney);
+  $("rivalDirectMoney").textContent = formatMoney(result.opponentBonusMoney);
+  $("resultFormula").textContent = hasRival
+    ? "Seu saldo = seu total (" + formatMoney(result.playerMoney) + ") − total de " + rivalName + " (" + formatMoney(result.opponentMoney) + "). Bônus entram no dinheiro; a vitória é por pontos."
+    : "Total = valor dos pontos + bônus de dinheiro.";
+  $("resultDetail").textContent = state.format === "race"
+    ? "Corrida · " + state.duration + "s iniciais" + (hasRival ? " por jogador" : "")
+    : "Por turnos · " + state.rounds + " rodadas";
 
   const revealResult = () => {
     resetScoreHud(state.playerScore, state.rivalScore);
@@ -4650,8 +4655,8 @@ function syncMenu(pushOnline = true) {
     typeof navigator.share === "function" ? "Convidar jogador" : "Copiar link";
 
   $("formatHelp").innerHTML = race
-    ? "<strong>Bônus:</strong> criar ↔/↕ +4s · 💣 +6s · ◆ Arco-íris +5s · cascata x2 +1s · x3+ +2s. ⏳ congela 10s. 😈 tira 2s do rival. Sem teto de tempo extra."
-    : "<strong>Turnos:</strong> 90s por vez. Criar ↔/↕, 💣 ou ◆ Arco-íris dá +1 movimento. Extras acumulam sem limite. ⏳ congela 10s. 😈 tira 5s do próximo turno rival (mín. 30s).";
+    ? "<strong>Bônus:</strong> criar ↔/↕ +4s · 💣 +6s · ◆ Arco-íris +5s · cascata x2 +1s · x3+ +2s. ⏳ congela 10s. 😈 tira 3s do relógio atual do rival. Sem teto de tempo extra."
+    : "<strong>Turnos:</strong> 90s por vez. Criar ↔/↕, 💣 ou ◆ Arco-íris dá +1 movimento. Extras acumulam sem limite. ⏳ congela 10s. 😈 tira 10s do próximo turno rival (mín. 30s).";
 
   if (isSolo) {
     $("opponentHelp").textContent = "Supere sua pontuação.";
@@ -4825,8 +4830,8 @@ async function executeDevPiece() {
               ? `👑 x${multiplier}`
               : cell.power === "devil"
                 ? state.format === "race"
-                  ? "😈 -2s rival"
-                  : "😈 -5s próximo turno rival"
+                  ? `😈 -${DEVIL_RACE_PENALTY_SECONDS}s rival`
+                  : `😈 -${DEVIL_TURN_PENALTY_SECONDS}s próximo turno rival`
                 : cell.power === "cash"
                   ? `💸 +${formatMoney(moneyBonus)}`
                   : cell.power === "clock"

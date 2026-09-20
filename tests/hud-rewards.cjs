@@ -50,7 +50,7 @@ test('reward flights preserve gameplay and land before HUD updates', async (t) =
     assert.ok(Math.hypot(token.x+token.width/2-target.x-target.width/2,token.y+token.height/2-target.y-target.height/2)<25);
     assert.equal(await text('rivalClock'),'60,0s');
     await advance(250);
-    assert.equal(await text('rivalClock'),'58,0s');
+    assert.equal(await text('rivalClock'),'57,0s');
     await start();
     assert.equal(await page.locator('.reward-flight').count(),0);
     await page.evaluate(()=>window.scrollTo(0,0));
@@ -67,21 +67,21 @@ test('reward flights preserve gameplay and land before HUD updates', async (t) =
     assert.equal(await text('playerMoney'), 'R$ 0,00');
     await run(`setScore('player',320); addBonusMoney('player',3); collectCascadeFeedback('player',batch,200,3);
       batch.seconds=11; batch.clockCount=2; batch.devilCount=1; finalizeCascadeRewards('player',batch);`);
-    assert.deepEqual(await run('[state.playerScore,state.playerTime,state.playerBonusMoney,state.playerClockFreeze,state.rivalTime]'), [320,71,6,20,58]);
+    assert.deepEqual(await run('[state.playerScore,state.playerTime,state.playerBonusMoney,state.playerClockFreeze,state.rivalTime]'), [320,71,6,20,57]);
     assert.equal(await text('playerClock'), '60,0s');
     assert.equal(await text('rivalClock'), '60,0s');
     await advance(700);
     assert.equal(await text('playerScoreReward'), '+320');
     assert.equal(await text('playerClockReward'), '+11s');
     assert.equal(await text('playerMoneyReward'), '+R$ 6,00');
-    assert.equal(await text('rivalClockReward'), '😈 −2s');
+    assert.equal(await text('rivalClockReward'), '😈 −3s');
     assert.equal(await text('playerScore'), '0');
     assert.equal(await text('playerFreeze'), '⏸ CONGELADO · 20,0s');
     await advance(1000);
     assert.equal(await text('rivalClock'), '60,0s');
     assert.equal(await text('playerClock'), '71,0s');
     await advance(600);
-    assert.equal(await text('rivalClock'), '58,0s');
+    assert.equal(await text('rivalClock'), '57,0s');
     assert.equal(await text('playerScore'), '320');
     assert.equal(await text('playerClock'), '71,0s');
     assert.equal(await text('playerMoney'), 'R$ 9,20');
@@ -107,21 +107,21 @@ test('reward flights preserve gameplay and land before HUD updates', async (t) =
   await t.test('turn rewards, next-turn penalty and crown move duration retain their rules', async () => {
     await start('turns');
     await run("window.batch=createCascadeRewards(); batch.moves=2; batch.devilCount=1; finalizeCascadeRewards('player',batch); activateCrownBoost('player',2);");
-    assert.deepEqual(await run('[state.movesLeft,state.turnTimeLeft,state.rivalTurnPenalty,crownMultiplierFor("player"),crownBoostFor("player")]'), [5,90,5,4,3]);
+    assert.deepEqual(await run('[state.movesLeft,state.turnTimeLeft,state.rivalTurnPenalty,crownMultiplierFor("player"),crownBoostFor("player")]'), [5,90,10,4,3]);
     assert.equal(await text('playerMoves'), '3 MOV.');
     assert.equal(await text('rivalClock'), '90,0s');
     await advance(600);
     assert.equal(await text('playerMovesReward'), '+2 MOV.');
-    assert.equal(await text('rivalClockReward'), '😈 −5s PRÓX.');
+    assert.equal(await text('rivalClockReward'), '😈 −10s PRÓX.');
     assert.equal(await text('playerCrownBoostTimeReward'), '👑 x4');
     await advance(1500);
     assert.equal(await text('playerMoves'), '5 MOV.');
-    assert.equal(await text('rivalClock'), '85,0s');
+    assert.equal(await text('rivalClock'), '80,0s');
     assert.equal(await text('playerCrownBoostTime'), 'x4 · 3 jog.');
     await run("consumeCrownMove('player'); renderHud();");
     assert.equal(await text('playerCrownBoostTime'), 'x4 · 2 jog.');
     await run("resetTurnClock('rival');");
-    assert.equal(await run('state.turnTimeLeft'), 85);
+    assert.equal(await run('state.turnTimeLeft'), 80);
   });
 
   await t.test('both sides and overlapping destinations settle without losing or replaying gains', async () => {
@@ -131,9 +131,9 @@ test('reward flights preserve gameplay and land before HUD updates', async (t) =
     assert.equal(await text('playerClock'), '60,0s');
     assert.equal(await text('rivalClock'), '60,0s');
     await advance(1300);
-    assert.equal(await text('playerClock'), '62,0s');
+    assert.equal(await text('playerClock'), '61,0s');
     await advance(2900);
-    assert.equal(await text('playerClock'), '62,0s');
+    assert.equal(await text('playerClock'), '61,0s');
     assert.equal(await text('rivalClock'), '66,0s');
     assert.equal(await run('hudHolds.size'), 0);
   });
@@ -169,10 +169,10 @@ test('reward flights preserve gameplay and land before HUD updates', async (t) =
   await t.test('an attack on the last move still reads before the new turn clock changes', async () => {
     await start('turns');
     await run("const hit=applyDevilEffect('player',1); showDevilAttack('player',hit); state.currentSide='rival'; resetTurnClock('rival'); renderHud();");
-    assert.equal(await run('state.turnTimeLeft'),85);
+    assert.equal(await run('state.turnTimeLeft'),80);
     assert.equal(await text('rivalClock'),'90,0s');
     await advance(1550);
-    assert.equal(await text('rivalClock'),'85,0s');
+    assert.equal(await text('rivalClock'),'80,0s');
   });
 
   await t.test('real swaps, direct special combinations and Dev Tools complete their cascades', async () => {
@@ -208,7 +208,7 @@ test('reward flights preserve gameplay and land before HUD updates', async (t) =
       if(scenario==='clock') assert.ok((await run('state.playerClockFreeze'))>=10);
       if(scenario==='cash') assert.ok((await run('state.playerBonusMoney'))>=3);
       if(scenario==='crown') assert.ok((await run("crownMultiplierFor('player')"))>=2);
-      if(scenario==='devil') assert.ok((await run('state.rivalTime'))<=58);
+      if(scenario==='devil') assert.ok((await run('state.rivalTime'))<=57);
     }
     await run('Math.random=originalRandom;');
     await page.emulateMedia({ reducedMotion:'no-preference' });
@@ -264,7 +264,7 @@ test('reward flights preserve gameplay and land before HUD updates', async (t) =
   await t.test('jewel celebration fits mobile, honors reduced motion and cancels on restart', async () => {
     for(const width of [320,390,768]) {
       await page.setViewportSize({width,height:1024});
-      await start();
+      await start('turns');
       await page.emulateMedia({reducedMotion:'reduce'});
       await run(`window.creationFinished=false; window.creationRewards=createCascadeRewards();
         $('devTools').hidden=true;
@@ -446,9 +446,9 @@ test('reward flights preserve gameplay and land before HUD updates', async (t) =
       await offlinePage.goto(`http://127.0.0.1:${server.address().port}/`);
       await offlinePage.evaluate(async()=>{await navigator.serviceWorker.ready;});
       await offlinePage.waitForFunction(()=>!!navigator.serviceWorker.controller);
-      assert.ok((await offlinePage.evaluate(()=>caches.keys())).includes('joias-findom-v32-move-dots'));
+      assert.ok((await offlinePage.evaluate(()=>caches.keys())).includes('joias-findom-v35-results'));
       assert.equal(await offlinePage.evaluate(async()=>{
-        const cache=await caches.open('joias-findom-v32-move-dots');
+        const cache=await caches.open('joias-findom-v35-results');
         return !!(await cache.match(new URL('./jewel-theme.css',location.href).href));
       }),true,'art direction is cached for offline play');
       await offlineContext.setOffline(true);

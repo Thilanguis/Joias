@@ -65,7 +65,7 @@ Protótipo match-3 responsivo para celular, tablet e desktop.
 - Os valores reais, multiplicadores, relógios, penalidades e publicações online continuam seguindo as regras e o ritmo anteriores. A espera é apenas visual e não bloqueia a próxima jogada.
 - Dinheiro individual fica junto ao jogador; o centro mantém a diferença financeira do duelo. No celular, os dois jogadores têm colunas próprias e o HUD acompanha a rolagem em telas com altura suficiente.
 - `⏸ CONGELADO · 6,4s` permanece ao lado do relógio, soma congelamentos e desaparece ao terminar. A coroa permanece com multiplicador e duração/movimentos restantes.
-- Diabinho sai do tabuleiro atacante e voa até o relógio atingido. Em Turnos, o relógio inativo mostra o tempo previsto para o próximo turno, preservando a penalidade de 5s e seu limite atual.
+- Diabinho sai do tabuleiro atacante e voa até o relógio atingido. Em Turnos, o relógio inativo mostra o tempo previsto para o próximo turno, preservando a penalidade de 10s e seu limite atual.
 - O último evento permanente e os avisos duplicados foram removidos; os voos continuam fazendo parte da linguagem visual. Quebra/queda foram preservadas. A geometria dos voos é medida na partida e atualizada ao rolar/redimensionar, sem leituras de layout em todo frame; dinheiro reutiliza o DOM e snapshots online iguais não recriam os tabuleiros. Reflows necessários para reinício de outras animações não foram removidos.
 - Somente na preferência de movimento reduzido os avisos permanecem junto ao HUD, com o mesmo tempo de leitura e sem voo/pulso. A última recompensa termina antes de abrir a tela de resultado; o encerramento lógico da partida continua imediato.
 
@@ -112,7 +112,7 @@ Depois abra `http://localhost:8000`.
 
 - Corrida: criar seta +4s, bomba +6s, Arco-íris +5s; cascatas x2 +1s e x3+ +2s, sem teto de tempo extra.
 - Turnos: 90s por vez; criar seta/bomba/Arco-íris rende +1 movimento, acumulável sem limite.
-- ⏳ congela o relógio por 10s; 😈 tira 2s na Corrida ou 5s do próximo turno rival; 💸 gera R$ 3,00.
+- ⏳ congela o relógio por 10s; 😈 tira 3s do relógio atual na Corrida ou 10s do próximo turno rival; 💸 gera R$ 3,00.
 - 👑 acumula x2 → x4 → x8 → ...; duração cresce por nível.
 - Arco-íris ganhou uma joia multicolorida própria e o lado do bot usa animações mais estáveis para evitar flicker em tablets rápidos.
 
@@ -122,5 +122,5 @@ Depois abra `http://localhost:8000`.
 - Matches agora têm uma curta fase de leitura antes de quebrar; a quebra e a queda ficaram um pouco mais lentas e com pequeno assentamento.
 - Reduzidos flashes de brilho; animações priorizam escala/opacidade para diminuir sensação de estrobo em tablets rápidos.
 - O bot usa o mesmo ritmo legível, mas continua sem efeitos de brilho agressivos.
-- 😈 ganhou animação de ataque: `-2s` na Corrida ou `-5s` no próximo turno voa até o relógio adversário e o HUD atingido reage.
+- 😈 ganhou animação de ataque: `-3s` na Corrida ou `-10s` no próximo turno voa até o relógio adversário e o HUD atingido reage.
 - O ritmo foi ajustado para deixar clara a sequência: combinação → quebra → queda → cascata → recompensa.

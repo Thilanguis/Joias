@@ -279,7 +279,7 @@
           <span><b>5</b> cria ◆ Arco-íris multicolorido, que limpa uma cor: <b>+5s</b> ou <b>+1 movimento</b></span>
           <span><b>T/L</b> cria 💣 3×3: <b>+6s</b> ou <b>+1 movimento</b></span>
           <span>👑 ativa <b>x2 por 8s</b>; novas coroas ativas dobram de novo e somam +2s por nível. Em Turnos: x2/2 jog., x4/3 jog., x8/4 jog...</span>
-          <span>😈 Corrida: tira <b>2s</b> do rival. Turnos: tira <b>5s</b> do próximo turno do rival, até o mínimo de 30s</span>
+          <span>😈 Corrida: tira <b>3s</b> do relógio atual do rival. Turnos: tira <b>10s</b> do próximo turno do rival, até o mínimo de 30s</span>
           <span>💸 gera <b>R$ 3,00</b> direto</span>
           <span>⏳ <b>congela o seu relógio por 10s</b> enquanto você continua jogando</span>
           <span><b>Cascatas na Corrida:</b> x2 +1s · x3 ou maior +2s. Tempo/movimentos extras entram juntos ao fim da cascata e não têm teto</span>
@@ -329,15 +329,26 @@
 
     <section id="resultScreen" class="screen" aria-labelledby="resultTitle">
       <div class="result-card">
-        <div id="resultIcon" class="result-icon">🏆</div>
+        <div class="result-eyebrow">JOIAS FINDOM · FIM DE PARTIDA</div>
+        <div id="resultIcon" class="result-icon" aria-hidden="true">🏆</div>
         <h2 id="resultTitle">RESULTADO</h2>
         <p id="resultText"></p>
-        <div class="result-scores">
-          <span>Você <strong id="finalPlayer">0</strong></span>
-          <span id="finalRivalWrap"><b id="finalRivalName">RIVAL</b> <strong id="finalRival">0</strong></span>
+        <div class="result-settlement">
+          <div id="moneyResultLabel" class="result-eyebrow">SEU SALDO NA PARTIDA</div>
+          <div id="moneyResult" class="money-result"></div>
+          <p id="moneyResultHint"></p>
         </div>
+        <div id="resultScores" class="result-scores">
+          <div id="finalPlayerWrap" class="result-player"><b>VOCÊ</b><strong id="finalPlayer">0</strong><small>pontos</small><div class="result-player-money"><small>Total gerado</small><b id="finalPlayerMoney"></b></div></div>
+          <div id="finalRivalWrap" class="result-player"><b id="finalRivalName">RIVAL</b><strong id="finalRival">0</strong><small>pontos</small><div class="result-player-money"><small>Total gerado</small><b id="finalRivalMoney"></b></div></div>
+        </div>
+        <details id="resultCalculation" class="result-calculation">
+          <summary>Como o valor foi calculado</summary>
+          <p id="resultRate"></p>
+          <div class="result-breakdown"><b></b><b>Você</b><b id="calculationRivalName"></b><span>Pontos em R$</span><span id="playerPointsMoney"></span><span id="rivalPointsMoney"></span><span>Bônus 💸</span><span id="playerDirectMoney"></span><span id="rivalDirectMoney"></span></div>
+          <p id="resultFormula"></p>
+        </details>
         <div id="resultDetail" class="result-detail"></div>
-        <div id="moneyResult" class="money-result"></div>
         <button id="againBtn" class="primary">JOGAR NOVAMENTE</button>
         <button id="menuBtn">VOLTAR AO MENU</button>
       </div>

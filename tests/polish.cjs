@@ -112,5 +112,28 @@ test('premium polish: energy, DOM reuse, sharing and responsive artwork', async 
       await page.evaluate(()=>scrollTo(0,0));
     }
   });
+  await t.test('race skips the announcement pause; freeze overlay follows stacked time and thaws',async()=>{
+    await page.emulateMedia({reducedMotion:'reduce'});
+    await run("startGame({opponentType:'solo',format:'race'});stopTimers();window.raceMomentDone=false;void showCreationMoments('player',[{pos:{r:2,c:2},special:'row'}],createCascadeRewards()).then(()=>raceMomentDone=true);");
+    assert.equal(await run('raceMomentDone'),true,'no timer must be advanced for the race announcement');
+    assert.equal(await page.locator('.celebrating-creation').count(),0);
+    await run("addClockFreeze('player',2);renderHud();");
+    assert.equal(await page.locator('#playerTimeBar').evaluate(n=>n.classList.contains('is-frozen')),true);
+    assert.match(await page.locator('#playerFreeze').textContent(),/20,0s/);
+    const fill=await page.locator('#playerTimeFill').getAttribute('style');
+    assert.equal(await run("consumeClockFreeze('player',3.6)"),0);
+    await run('renderHud();');
+    assert.match(await page.locator('#playerFreeze').textContent(),/16,4s/);
+    assert.equal(await page.locator('#playerTimeFill').getAttribute('style'),fill);
+    await advance(300);
+    assert.equal(await page.locator('#playerTimeFill').evaluate(n=>getComputedStyle(n,'::before').opacity),'1');
+    assert.ok(Math.abs(await run("consumeClockFreeze('player',17)")-.6)<.0001);
+    await run('renderHud();');await advance(300);
+    assert.equal(await page.locator('#playerTimeBar.is-frozen').count(),0);
+    assert.equal(await page.locator('#playerTimeFill').evaluate(n=>getComputedStyle(n,'::before').opacity),'0');
+    await run("addClockFreeze('player',1);renderHud();startGame({opponentType:'bot',format:'turns'});stopTimers();");
+    assert.equal(await page.locator('.time-track.is-frozen').count(),0,'restart removes ice');
+    await page.emulateMedia({reducedMotion:'no-preference'});
+  });
   assert.deepEqual(errors,[]);
 });
